@@ -34,7 +34,7 @@ class DemoCatalogSeeder extends Seeder
     public function run(): void
     {
         if (app()->isProduction()) {
-            $this->command?->error('Il catalogo demo non si crea in produzione.');
+            $this->command->error('Il catalogo demo non si crea in produzione.');
 
             return;
         }
@@ -56,13 +56,10 @@ class DemoCatalogSeeder extends Seeder
                 'status' => 'active',
             ]);
 
-            $streetPoints = [];
-            foreach (self::STREETS as $street) {
-                $streetPoints[$street] = [
-                    'lat' => self::CENTER['lat'] + $this->between(-0.02, 0.02),
-                    'lng' => self::CENTER['lng'] + $this->between(-0.03, 0.03),
-                ];
-            }
+            $streetPoints = array_map(fn () => [
+                'lat' => self::CENTER['lat'] + $this->between(-0.02, 0.02),
+                'lng' => self::CENTER['lng'] + $this->between(-0.03, 0.03),
+            ], self::STREETS);
 
             $taken = [];
             for ($i = 0; $i < 400; $i++) {
@@ -80,7 +77,8 @@ class DemoCatalogSeeder extends Seeder
                     'number' => $number,
                 ]);
 
-                $street = self::STREETS[array_rand(self::STREETS)];
+                $streetIndex = array_rand(self::STREETS);
+                $street = self::STREETS[$streetIndex];
                 $civic = mt_rand(1, 180);
 
                 foreach ($this->units() as $sub => [$category, $floor]) {
@@ -89,7 +87,7 @@ class DemoCatalogSeeder extends Seeder
 
                 // Some parcels have no known position, as in the real archive.
                 if (mt_rand(1, 100) <= 92) {
-                    $point = $streetPoints[$street];
+                    $point = $streetPoints[$streetIndex];
                     DB::insert(
                         'insert into parcel_search_points (parcel_id, catalog_release_id, source, location, created_at, updated_at)
                          values (?, ?, ?, ST_SetSRID(ST_MakePoint(?, ?), 4326), now(), now())',
@@ -107,7 +105,7 @@ class DemoCatalogSeeder extends Seeder
         });
 
         $units = CadastralUnitVersion::query()->whereHas('catalogRelease', fn ($q) => $q->where('code', 'DEMO-'.self::CODE))->count();
-        $this->command?->info("Comune Demo (X001): 400 particelle, {$units} unità.");
+        $this->command->info("Comune Demo (X001): 400 particelle, {$units} unità.");
     }
 
     /**

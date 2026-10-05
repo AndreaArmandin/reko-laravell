@@ -85,8 +85,8 @@ it('keeps parcels, units and releases in their municipality', function () {
 it('still seeds and searches the demo catalogue', function () {
     $this->seed(DemoCatalogSeeder::class);
 
-    $result = (new CatalogSearch)->search(['code' => 'X001', 'segment' => 'private']);
+    $result = (new CatalogSearch)->search(['code' => 'X001', 'segment' => 'private', 'min' => 0.5, 'max' => 1000]);
 
     expect($result->total)->toBe(272)
-        ->and($result->matchedUnits)->toBe(1856);
+        ->and($result->matchedUnits)->toBe(1800); // units without consistency cannot satisfy the range
 });

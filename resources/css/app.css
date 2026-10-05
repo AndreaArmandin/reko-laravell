@@ -8,32 +8,36 @@
 
 @custom-variant dark (&:where(.dark, .dark *));
 
+/* Font di Trova (licenza OFL, vedi public/fonts) */
+@font-face { font-family: Manrope; font-style: normal; font-weight: 400 800; font-display: swap; src: url('/fonts/manrope-latin.woff2') format('woff2'); }
+@font-face { font-family: 'IBM Plex Mono'; font-style: normal; font-weight: 400; font-display: swap; src: url('/fonts/ibm-plex-mono-400-latin.woff2') format('woff2'); }
+@font-face { font-family: 'IBM Plex Mono'; font-style: normal; font-weight: 500; font-display: swap; src: url('/fonts/ibm-plex-mono-500-latin.woff2') format('woff2'); }
+@font-face { font-family: 'IBM Plex Mono'; font-style: normal; font-weight: 600; font-display: swap; src: url('/fonts/ibm-plex-mono-600-latin.woff2') format('woff2'); }
+
+/* Palette di Trova (app/brand.css). Trova ha solo il tema chiaro. */
 @theme {
-    --font-sans: 'Instrument Sans', ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
+    --font-sans: 'Manrope', ui-sans-serif, system-ui, sans-serif;
+    --font-mono: 'IBM Plex Mono', ui-monospace, monospace;
 
-    --color-zinc-50: #fafafa;
-    --color-zinc-100: #f5f5f5;
-    --color-zinc-200: #e5e5e5;
-    --color-zinc-300: #d4d4d4;
-    --color-zinc-400: #a3a3a3;
-    --color-zinc-500: #737373;
-    --color-zinc-600: #525252;
-    --color-zinc-700: #404040;
-    --color-zinc-800: #262626;
-    --color-zinc-900: #171717;
-    --color-zinc-950: #0a0a0a;
+    /* Flux usa la scala zinc per i neutri: qui diventano i grigi verdi di Trova */
+    --color-zinc-50: #f7f8f6;  /* sfondo pagina */
+    --color-zinc-100: #eff2ef; /* superfici tenui */
+    --color-zinc-200: #d7ddd8; /* linee */
+    --color-zinc-300: #b4bdb6;
+    --color-zinc-400: #78847c; /* bordi dei controlli */
+    --color-zinc-500: #515b54; /* testo secondario */
+    --color-zinc-600: #434b46;
+    --color-zinc-700: #333a35;
+    --color-zinc-800: #1b211d; /* inchiostro */
+    --color-zinc-900: #131814;
+    --color-zinc-950: #0b0d0c;
 
-    --color-accent: var(--color-neutral-800);
-    --color-accent-content: var(--color-neutral-800);
-    --color-accent-foreground: var(--color-white);
-}
+    --color-accent: #ffc93c;            /* giallo REKO */
+    --color-accent-content: #3f390b;    /* testo d'accento su fondo chiaro */
+    --color-accent-foreground: #1b211d; /* testo sopra il giallo */
 
-@layer theme {
-    .dark {
-        --color-accent: var(--color-white);
-        --color-accent-content: var(--color-white);
-        --color-accent-foreground: var(--color-neutral-800);
-    }
+    --color-reko-yellow-soft: #fff5d7;
+    --color-reko-focus: #405e49;
 }
 
 @layer base {
@@ -43,12 +47,18 @@
     ::before,
     ::backdrop,
     ::file-selector-button {
-        border-color: var(--color-gray-200, currentColor);
+        border-color: var(--color-zinc-200, currentColor);
+    }
+
+    :focus-visible {
+        outline: 3px solid var(--color-reko-focus);
+        outline-offset: 3px;
     }
 }
 
 [data-flux-field]:not(ui-radio, ui-checkbox) {
     @apply grid gap-2;
+    align-items: center;
 }
 
 [data-flux-label] {
@@ -58,9 +68,47 @@
 input:focus[data-flux-control],
 textarea:focus[data-flux-control],
 select:focus[data-flux-control] {
-    @apply outline-hidden ring-2 ring-accent ring-offset-2 ring-offset-accent-foreground;
+    @apply outline-hidden ring-2 ring-reko-focus ring-offset-2 ring-offset-white;
 }
 
-/* \[:where(&)\]:size-4 {
-    @apply size-4;
-} */
+/* Titoli come in Trova: pesanti e compatti */
+[data-flux-heading] {
+    font-weight: 800;
+    letter-spacing: -0.03em;
+}
+
+/* Nome del marchio nella barra laterale */
+[data-flux-sidebar-brand] > div + div {
+    font-weight: 800;
+    font-size: 1rem;
+    letter-spacing: -0.02em;
+}
+
+/* Codici e numeri in IBM Plex Mono, con cifre allineate */
+[data-flux-badge] {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+}
+
+/* Pulsanti come in Trova */
+[data-flux-button] {
+    border-radius: 12px;
+    font-weight: 700;
+}
+
+/* Voce attiva del menu: gialla con barra bianca, come la barra laterale di Trova */
+[data-flux-sidebar-item][data-current] {
+    background: var(--color-accent);
+    border-color: var(--color-accent);
+    color: var(--color-accent-foreground);
+    box-shadow: inset 4px 0 #fff;
+}
+
+[data-flux-sidebar-item]:not([data-current]):hover {
+    background: var(--color-reko-yellow-soft);
+}
+
+/* Intestazioni delle tabelle su fondo tenue */
+[data-flux-column] {
+    background: var(--color-zinc-100);
+}

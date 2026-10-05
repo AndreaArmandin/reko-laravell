@@ -47,6 +47,7 @@ new class extends Component {
         $this->resetErrorBag();
         $this->searched = true;
 
+    
         try {
             $result = app(CatalogSearch::class)->search([
                 'code' => $this->code,
@@ -106,22 +107,30 @@ new class extends Component {
         return Categories::BUSINESS_TYPES;
     }
 
+    // Misura in cui Da e A sono obbligatori (stessa regola del motore), null se facoltativi
+    #[Computed]
+    public function rangeMeasure(): ?string
+    {
+        $groups = $this->segment === 'business' ? Categories::BUSINESS_TYPES[$this->businessType]['groups'] : Categories::scopeGroups('private', $this->housing ?: null);
+
+        return CatalogSearch::requiredMeasure($this->segment, $this->housing ?: null, $groups, $this->categories);
+    }
+
     #[Computed]
     public function unit(): string
     {
-        if ($this->segment === 'private') {
-            return $this->housing === 'garage' ? 'm²' : 'vani';
-        }
+        return $this->rangeMeasure ?? 'vani o m²';
+    }
 
-        return 'vani o m²';
+    public function value(mixed $value): string
+    {
+        return $value === null ? '—' : str_replace('.', ',', (string) (float) $value);
     }
 };
 
 ?>
 
 <div class="mx-auto max-w-6xl space-y-6 p-6">
-    <flux:heading size="xl">Trova</flux:heading>
-
     <form wire:submit="search" class="space-y-6">
         {{-- Comune, percorso, tipo --}}
         <div class="grid gap-4 md:grid-cols-3">
@@ -152,10 +161,11 @@ new class extends Component {
 
         {{-- Categorie: solo se c'è più di una scelta (per i box c'è solo C/6) --}}
         @if (count($this->selectableCategories) > 1)
-            <flux:checkbox.group wire:model="categories" label="Categorie (facoltative)">
-                <div class="grid grid-cols-3 gap-2 sm:grid-cols-6">
+            <flux:checkbox.group wire:model="categories" label="Categorie">
+                <div class="grid grid-cols-3 gap-2 sm:grid-cols-4">
                     @foreach ($this->selectableCategories as $cat)
-                        <flux:checkbox value="{{ $cat }}" label="{{ $cat }}" />
+                        <flux:checkbox class="flex items-center" value="{{ $cat }}"
+                            :label="\App\Trova\Categories::label($cat) . ' · ' . $cat" />
                     @endforeach
                 </div>
             </flux:checkbox.group>
@@ -163,10 +173,10 @@ new class extends Component {
 
         {{-- Superficie --}}
         <div class="grid gap-4 md:grid-cols-2">
-            <flux:input wire:model="min" type="number" min="0" step="0.5"
-                label="Superficie da ({{ $this->unit }})" />
-            <flux:input wire:model="max" type="number" min="0" step="0.5"
-                label="Superficie a ({{ $this->unit }})" />
+            <flux:input wire:model="min" type="number" min="0.5" step="0.5"
+                :required="$this->rangeMeasure !== null" label="Superficie da ({{ $this->unit }})" />
+            <flux:input wire:model="max" type="number" min="0.5" step="0.5"
+                :required="$this->rangeMeasure !== null" label="Superficie a ({{ $this->unit }})" />
         </div>
 
         {{-- Indirizzo e riferimenti catastali --}}
@@ -202,7 +212,90 @@ new class extends Component {
     @enderror
 
 
-    @if ($searched)
-        <p>{{ $total }} particelle · {{ $units }} unità</p>
+    {{-- Risultati della ricerca --}}
+    @if ($searched && !$errors->has('search'))
+        <div class="space-y-4">
+            <flux:heading size="lg">{{ $total }} particelle · {{ $units }} unità</flux:heading>
+
+            @if ($total === 0)
+                <flux:text>Nessun risultato. Prova ad allargare i filtri.</flux:text>
+            @else
+                <flux:table>
+                    <flux:table.columns>
+                        <flux:table.column>Indirizzo</flux:table.column>
+                        <flux:table.column>Riferimento</flux:table.column>
+                        <flux:table.column>Categorie</flux:table.column>
+                        <flux:table.column>Consistenza</flux:table.column>
+                        <flux:table.column>Unità</flux:table.column>
+                    </flux:table.columns>
+
+                    <flux:table.rows>
+                        @foreach ($rows as $row)
+                            <flux:table.row :key="$row['parcel_id']">
+                                {{-- Indirizzo della particella --}}
+                                <flux:table.cell>{{ $row['address'] ?? 'Indirizzo non disponibile' }}</flux:table.cell>
+
+                                {{-- Sezione (se c'è), foglio, particella --}}
+                                <flux:table.cell>
+                                    @if ($row['section'] !== '')
+                                        Sez. {{ $row['section'] }} ·
+                                    @endif
+                                    Fg. {{ $row['sheet'] }} · Part. {{ $row['number'] }}
+                                </flux:table.cell>
+
+                                {{-- Categorie trovate sulla particella --}}
+                                <flux:table.cell>
+                                    @foreach ($row['categories'] as $category)
+                                        <flux:badge size="sm">{{ $category }}</flux:badge>
+                                    @endforeach
+                                </flux:table.cell>
+
+                                {{-- Consistenza minima–massima --}}
+                                <flux:table.cell>
+                                    @if ($row['min_value'] === null)
+                                        —
+                                    @elseif ($row['min_value'] == $row['max_value'])
+                                        {{ $this->value($row['min_value']) }} {{ $measure }}
+                                    @else
+                                        {{ $this->value($row['min_value']) }}–{{ $this->value($row['max_value']) }}
+                                        {{ $measure }}
+                                    @endif
+                                </flux:table.cell>
+
+                                {{-- Unità trovate: cliccando si apre l'elenco --}}
+                                <flux:table.cell>
+                                    <details>
+                                        <summary class="cursor-pointer">{{ $row['records'] }} unità</summary>
+                                        <ul class="mt-2 space-y-1 text-sm">
+                                            @foreach ($row['units'] as $unit)
+                                                <li>
+                                                    Sub {{ $unit['sub'] ?? '—' }} · {{ $unit['category'] }}
+                                                    @if ($unit['value'] !== null)
+                                                        · {{ $this->value($unit['value']) }} {{ $unit['measure'] }}
+                                                    @endif
+                                                    <span class="text-zinc-500">· {{ $unit['address'] }}</span>
+                                                </li>
+                                            @endforeach
+                                        </ul>
+                                    </details>
+                                </flux:table.cell>
+                            </flux:table.row>
+                        @endforeach
+                    </flux:table.rows>
+                </flux:table>
+
+                {{-- Pagine --}}
+                <div class="flex items-center justify-between">
+                    <flux:button wire:click="goToPage({{ $page - 1 }})" :disabled="$page <= 1" icon="chevron-left">
+                        Precedente
+                    </flux:button>
+                    <flux:text>Pagina {{ $page }} di {{ $pages }}</flux:text>
+                    <flux:button wire:click="goToPage({{ $page + 1 }})" :disabled="$page >= $pages"
+                        icon-trailing="chevron-right">
+                        Successiva
+                    </flux:button>
+                </div>
+            @endif
+        </div>
     @endif
 </div>

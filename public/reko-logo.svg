@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 237 72" width="948" height="288" role="img" aria-labelledby="reko-title reko-desc">
+  <title id="reko-title">REKO</title>
+  <desc id="reko-desc">Una mappa in quattro particelle, una evidenziata in giallo, affianca la scritta REKO. Variante B rifinita, con spaziatura ottica corretta tra K e O. Fondo trasparente.</desc>
+  <g id="reko-marchio" transform="translate(12 12)">
+    <g id="reko-simbolo">
+      <path d="M18 1.4H39.8Q46.6 1.4 46.6 8.2V25L16.7 22.3Z" fill="#FFC93C"/>
+      <g fill="none" stroke="#14181F" stroke-width="2.8" stroke-linejoin="round">
+        <rect x="1.4" y="1.4" width="45.2" height="45.2" rx="6.8"/>
+        <path d="M18 1.4 15 46.6M1.4 21 46.6 25"/>
+      </g>
+    </g>
+    <g id="reko-scritta" transform="translate(63 4) scale(.91 1)" fill="#14181F">
+      <path id="reko-r" fill-rule="evenodd" d="M0 0H18C27 0 32 4.6 32 12.8C32 19.2 28.4 23.3 23 24.9L34 40H24.7L14.3 25.8H8V40H0ZM8 7.2V18.8H17.2C21.9 18.8 24 16.6 24 13C24 9.3 21.9 7.2 17.2 7.2Z"/>
+      <path id="reko-e" d="M44 2Q44 0 46 0H72V7.2H52V16.2H69V23.4H52V32.8H72V40H46Q44 40 44 38Z"/>
+      <path id="reko-k" d="M84 0H92V16.4L108.3 0H118.3L99.4 19.6 120 40H109.5L92 22.7V40H84Z"/>
+      <path id="reko-o" transform="translate(-5 0)" fill-rule="evenodd" d="M149-.5C160.7-.5 168 7.2 168 20C168 32.8 160.7 40.5 149 40.5C137.3 40.5 130 32.8 130 20C130 7.2 137.3-.5 149-.5ZM149 6.9C142 6.9 138 11.5 138 20C138 28.5 142 33.1 149 33.1C156 33.1 160 28.5 160 20C160 11.5 156 6.9 149 6.9Z"/>
+    </g>
+  </g>
+</svg>

@@ -39,6 +39,34 @@ final class Categories
         'F/1', 'F/2', 'F/3', 'F/4', 'F/5', 'F/6', 'F/7',
     ];
 
+    /**
+     * Presentation only: names from Trova (lib/property-type-labels.ts) and, for A/1–A/9,
+     * the official cadastral definitions (gazzettaufficiale.it/catasto/help/categoria).
+     *
+     * @var array<string, string>
+     */
+    public const LABELS = [
+        'A/1' => 'Abitazione signorile', 'A/2' => 'Abitazione civile', 'A/3' => 'Abitazione economica',
+        'A/4' => 'Abitazione popolare', 'A/5' => 'Abitazione ultrapopolare', 'A/6' => 'Abitazione rurale',
+        'A/7' => 'Villino', 'A/8' => 'Villa', 'A/9' => 'Castello o palazzo storico',
+        'A/10' => 'Ufficio o studio', 'C/1' => 'Negozio o punto vendita', 'C/2' => 'Magazzino o deposito',
+        'C/3' => 'Laboratorio', 'C/4' => 'Spazio sportivo senza fine di lucro',
+        'C/5' => 'Stabilimento balneare o termale senza fine di lucro',
+        'C/6' => 'Box, rimessa o autorimessa', 'C/7' => 'Tettoia',
+        'D/1' => 'Opificio', 'D/2' => 'Albergo o pensione', 'D/3' => 'Cinema, teatro o sala spettacoli',
+        'D/4' => 'Casa di cura o ospedale con fine di lucro', 'D/5' => 'Istituto bancario o assicurativo',
+        'D/6' => 'Impianto sportivo con fine di lucro', 'D/7' => 'Fabbricato per attività industriali',
+        'D/8' => 'Fabbricato per attività commerciali', 'D/9' => 'Struttura galleggiante, sospesa o ponte privato',
+        'D/10' => 'Fabbricato produttivo agricolo',
+        'B/1' => 'Collegio, convitto o struttura collettiva', 'B/2' => 'Casa di cura o ospedale senza fine di lucro',
+        'B/3' => 'Istituto penitenziario', 'B/4' => 'Ufficio pubblico', 'B/5' => 'Scuola o laboratorio scientifico',
+        'B/6' => 'Biblioteca, museo o spazio culturale', 'B/7' => 'Cappella o oratorio non aperto al culto pubblico',
+        'B/8' => 'Deposito sotterraneo di derrate',
+        'F/1' => 'Area urbana', 'F/2' => 'Immobile collabente', 'F/3' => 'Immobile in costruzione',
+        'F/4' => 'Immobile in corso di definizione', 'F/5' => 'Lastrico solare',
+        'F/6' => 'Fabbricato in attesa di dichiarazione', 'F/7' => 'Infrastruttura di comunicazione pubblica',
+    ];
+
     /** @var list<string> */
     public const BUSINESS_GROUPS = ['A10', 'C1', 'C2', 'C3', 'C4', 'C6', 'C7', 'D', 'F'];
 
@@ -67,6 +95,14 @@ final class Categories
         }
 
         return $match[1].'/'.(int) $match[2];
+    }
+
+    /**
+     * Readable name of a category, e.g. "A/2" → "Abitazione civile".
+     */
+    public static function label(string $value): string
+    {
+        return self::LABELS[self::normalize($value)] ?? 'Immobile · tipologia non specificata';
     }
 
     public static function group(string $value): string

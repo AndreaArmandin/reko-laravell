@@ -5,32 +5,19 @@ namespace App\Trova;
 use App\Models\Municipality;
 use Illuminate\Support\Facades\DB;
 
-/**
- * Catalogue search ported from Trova (lib/crm/cadastral-search.ts searchCadastral
- * validation and lib/crm/catalog-query.ts queryCatalogPage), first slice:
- * municipality, Private (homes, garages) and Business types, categories,
- * consistency range, address/section/sheet/parcel filters, sorting and pages.
- * Results are parcels, as on Trova's public pages; matching units are nested.
- *
- * Not ported yet: housing classification (apartment, independent house, floors,
- * top floor), which in Trova also limits Private homes to parcels with a housing
- * context; circle, bounds and zones; business activities and networks; civic numbers.
- */
+
 final class CatalogSearch
 {
     public const SORTS = ['best', 'address', 'surface-asc', 'surface-desc'];
 
     public const PAGE_SIZES = [10, 20];
 
-    /**
-     * @param  array{code?: mixed, segment?: mixed, housing?: mixed, businessType?: mixed, categories?: mixed,
-     *     min?: mixed, max?: mixed, address?: mixed, section?: mixed, sheet?: mixed, parcel?: mixed,
-     *     sort?: mixed, page?: mixed, pageSize?: mixed}  $input
-     */
+    // Esegue la ricerca
     public function search(array $input): CatalogSearchResult
     {
         $criteria = self::validate($input);
 
+        // Recupera il comune e l'archivio
         $municipality = Municipality::query()->where('cadastral_code', $criteria['code'])->with('catalog')->first();
         $releaseId = $municipality?->catalog?->catalog_release_id;
 
@@ -41,26 +28,24 @@ final class CatalogSearch
         return $this->query($criteria, $municipality->id, $releaseId);
     }
 
-    /**
-     * Same rules and messages as Trova's searchCadastral, for the ported options.
-     *
-     * @param  array<string, mixed>  $input
-     * @return array{code: string, segment: string, housing: string|null, groups: list<string>, categories: list<string>,
-     *     min: float|null, max: float|null, address: string, section: string|null, sheet: string|null, parcel: string|null,
-     *     sort: string, page: int, pageSize: int}
-     */
+   
+    // Validazione dei dati di input
     public static function validate(array $input): array
     {
+
+        //Codice comunale
         $code = is_string($input['code'] ?? null) ? strtoupper(trim($input['code'])) : '';
         if ($code === '') {
             throw new SearchException('Seleziona un Comune con archivio disponibile.');
         }
 
+        // Percorso: private o business
         $segment = $input['segment'] ?? null;
         if (! in_array($segment, ['private', 'business'], true)) {
             throw new SearchException('Percorso non valido.');
         }
 
+        // Tipo di abitazione: garage o altro
         $housing = $input['housing'] ?? null;
         $housing = $housing === '' ? null : $housing;
         if ($housing !== null && ($segment !== 'private' || $housing !== 'garage')) {
@@ -77,6 +62,7 @@ final class CatalogSearch
             $groups = Categories::scopeGroups($segment, $housing) ?? [];
         }
 
+        // Categorie catastali
         $categories = $input['categories'] ?? [];
         if (! is_array($categories) || count($categories) > 100) {
             throw new SearchException('Categoria catastale non valida.');
@@ -91,17 +77,30 @@ final class CatalogSearch
             return $normalized;
         }, $categories)));
 
+        // Superficie minima e massima
         $min = self::number($input['min'] ?? null);
         $max = self::number($input['max'] ?? null);
         if ($min !== null && $max !== null && $min > $max) {
             throw new SearchException('Il minimo non può superare il massimo.');
         }
 
+        // Unità di misura
         $dimensions = array_unique($categories !== []
             ? array_map(Categories::dimensionUnit(...), $categories)
             : array_map(fn (string $group) => Categories::GROUPS[$group]['unit'], $groups));
         if (($min !== null || $max !== null) && (count($dimensions) !== 1 || in_array(null, $dimensions, true))) {
             throw new SearchException('Per un intervallo scegli solo categorie in vani, solo categorie in m² oppure solo categorie in m³.');
+        }
+
+        // Trova lib/required-vani.ts: in vani or m² both limits are mandatory and above zero.
+        $measure = self::requiredMeasure($segment, $housing, $groups, $categories);
+        if ($measure !== null) {
+            if ($min === null || $max === null) {
+                throw new SearchException("Indica entrambi i valori in {$measure}: Da e A.");
+            }
+            if ($min <= 0 || $max <= 0) {
+                throw new SearchException("Inserisci valori maggiori di zero in {$measure}.");
+            }
         }
 
         $text = [];
@@ -146,19 +145,32 @@ final class CatalogSearch
         ];
     }
 
-    /**
-     * Trova's cadastralId: upper case, without leading zeros before a digit.
-     */
+    // Normalizza l'ID catastale
     public static function cadastralId(string $value): string
     {
         return (string) preg_replace('/^0+(?=\d)/', '', strtoupper(trim($value)));
     }
 
-    /**
-     * @param  array{code: string, segment: string, housing: string|null, groups: list<string>, categories: list<string>,
-     *     min: float|null, max: float|null, address: string, section: string|null, sheet: string|null, parcel: string|null,
-     *     sort: string, page: int, pageSize: int}  $c
-     */
+    // Misura in cui un intervallo è obbligatorio (Trova lib/required-vani.ts catalogMeasure).
+    // Null quando le categorie scelte mescolano misure o non ne hanno: allora l'intervallo è facoltativo.
+    public static function requiredMeasure(string $segment, ?string $housing, array $groups, array $categories): ?string
+    {
+        if ($segment === 'private') {
+            return $housing === 'garage' ? 'm²' : 'vani';
+        }
+
+        $units = array_values(array_unique($categories !== []
+            ? array_map(Categories::dimensionUnit(...), $categories)
+            : array_map(fn (string $group) => match (true) {
+                in_array($group, ['A', 'A10'], true) => 'vani',
+                (bool) preg_match('/^C[123467]$/', $group) => 'm²',
+                default => null,
+            }, $groups)));
+
+        return count($units) === 1 && in_array($units[0], ['vani', 'm²'], true) ? $units[0] : null;
+    }
+
+    // Query dei risultati
     private function query(array $c, int $municipalityId, int $releaseId): CatalogSearchResult
     {
         $private = $c['segment'] === 'private';
@@ -208,17 +220,17 @@ final class CatalogSearch
                 $limits[] = 'v.consistency <= ?';
                 $args[] = $c['max'];
             }
-            // Business ranges in m² apply to group C only, as in Trova.
+            // Business range in m² si applica solo al gruppo C, come in Trova.
             $conditions[] = $c['segment'] === 'business' && $expected !== 'A' && $expected !== 'B'
                 ? "(v.category NOT LIKE 'C/%' OR (".implode(' AND ', $limits).'))'
                 : '('.implode(' AND ', $limits).')';
         }
 
-        // Private results show the street without the floor; Business keeps the full address.
+        // Risultati privati: mostra l'indirizzo senza il piano; Business mantiene l'indirizzo completo.
         $address = $private
             ? "trim(CASE WHEN position(' PIANO ' in upper(m.address_raw)) > 0 THEN substr(m.address_raw, 1, position(' PIANO ' in upper(m.address_raw)) - 1) ELSE m.address_raw END)"
             : 'm.address_raw';
-        // Only one measure is comparable across a parcel. Business has none until activities exist.
+        // Solo una misura è comparabile tra i parcel. Business non ha misure finché non esistono attività.
         $comparable = $private
             ? "CASE WHEN m.consistency_unit = '".($garage ? 'm²' : 'vani')."' THEN m.consistency END"
             : 'NULL::numeric';
@@ -275,6 +287,7 @@ final class CatalogSearch
         );
     }
 
+    // Converte il valore in un numero
     private static function number(mixed $value): ?float
     {
         if ($value === null || $value === '') {
@@ -287,9 +300,7 @@ final class CatalogSearch
         return (float) $value;
     }
 
-    /**
-     * @param  list<mixed>  $values
-     */
+    // Genera i placeholder per la query SQL
     private static function placeholders(array $values): string
     {
         return $values === [] ? 'NULL' : implode(', ', array_fill(0, count($values), '?'));
