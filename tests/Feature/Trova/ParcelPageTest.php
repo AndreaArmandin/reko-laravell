@@ -56,3 +56,26 @@ it('links each search result to its parcel page', function () {
 
     $page->assertSee(route('community.search.parcels.show', $page->get('rows')[0]['parcel_id']), false);
 });
+
+it('turns the five Trova choices into search paths', function () {
+    $this->actingAs(User::factory()->create());
+
+    $page = Livewire::test('pages::community.search.index')
+        ->assertSee('Cosa cerchi?')
+        ->assertSee('Locali e spazi per attività')
+        ->set('choice', 'garage');
+    expect($page->get('segment'))->toBe('private')->and($page->get('housing'))->toBe('garage');
+
+    $page->set('categories', ['C/6'])->set('choice', 'business');
+    expect($page->get('segment'))->toBe('business')
+        ->and($page->get('housing'))->toBe('')
+        ->and($page->get('categories'))->toBe([])
+        ->and($page->get('sort'))->toBe('address');
+
+    $page->set('code', 'X002')->set('choice', 'homes')->set('min', '1')->set('max', '20')->call('search')
+        ->assertHasNoErrors()
+        ->assertSee('particelle');
+
+    // Grandi fabbricati e Terreni non sono ancora disponibili
+    Livewire::test('pages::community.search.index')->set('choice', 'land')->assertStatus(422);
+});

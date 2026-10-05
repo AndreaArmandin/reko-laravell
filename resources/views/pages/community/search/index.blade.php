@@ -34,6 +34,8 @@ new class extends Component {
     public ?string $measure = null;
     public bool $searched = false;
 
+    public string $choice = 'homes'; // homes | garage | business | buildings | land
+
     public function search(): void
     {
         $this->resetPage();
@@ -90,12 +92,14 @@ new class extends Component {
     }
 
     #[Computed]
+    // Comuni con catalogo attivo
     public function municipalities()
     {
         return Municipality::query()->whereHas('catalog')->orderBy('name')->get();
     }
 
     #[Computed]
+    // Categorie selezionabili
     public function selectableCategories(): array
     {
         $groups = $this->segment === 'business' ? Categories::BUSINESS_TYPES[$this->businessType]['groups'] : Categories::scopeGroups('private', $this->housing ?: null);
@@ -165,38 +169,81 @@ new class extends Component {
 
         return $features;
     }
+
+
+    #[Computed]
+    // Scelte di ricerca
+    public function choices(): array
+    {
+        return [
+            'homes' => ['title' => 'Abitazioni', 'text' => 'Appartamento o casa indipendente', 'icon' => 'home', 'ready' => true],
+            'garage' => ['title' => 'Box auto', 'text' => 'Dimensioni e zona del box', 'icon' => 'truck', 'ready' => true],
+            'business' => ['title' => 'Locali e spazi per attività', 'text' => 'Negozi, uffici e altri spazi', 'icon' => 'building-storefront', 'ready' => true],
+            'buildings' => ['title' => 'Grandi fabbricati', 'text' => 'Superficie a terra libera', 'icon' => 'building-office-2', 'ready' => false],
+            'land' => ['title' => 'Terreni', 'text' => 'Lotti e aree', 'icon' => 'map', 'ready' => false],
+        ];
+    }
+
+    // Aggiorna la scelta di ricerca
+    public function updatedChoice(): void
+    {
+        abort_unless($this->choices[$this->choice]['ready'] ?? false, 422);
+
+        [$this->segment, $this->housing] = match ($this->choice) {
+            'homes' => ['private', ''],
+            'garage' => ['private', 'garage'],
+            'business' => ['business', ''],
+        };
+
+        // Come prima: categorie e ordinamento della scelta precedente non valgono più
+        $this->categories = [];
+        $this->businessType = 'all';
+        $this->sort = $this->segment === 'business' ? 'address' : 'surface-desc';
+    }
 };
 
 ?>
 
 <div class="mx-auto max-w-screen-2xl space-y-6 p-6">
     <form wire:submit="search" class="space-y-6">
-        {{-- Comune, percorso, tipo --}}
-        <div class="grid gap-4 md:grid-cols-3">
-            <flux:select wire:model="code" label="Comune">
-                @foreach ($this->municipalities as $m)
-                    <flux:select.option value="{{ $m->cadastral_code }}">{{ $m->name }}</flux:select.option>
+        {{-- Comune --}}
+        <flux:select wire:model="code" label="In quale Comune vuoi cercare?" class="max-w-md">
+            @foreach ($this->municipalities as $m)
+                <flux:select.option value="{{ $m->cadastral_code }}">{{ $m->name }}</flux:select.option>
+            @endforeach
+        </flux:select>
+
+        {{-- Le 5 scelte di Trova --}}
+        <fieldset class="space-y-3">
+            <legend class="font-semibold">Cosa cerchi?</legend>
+            <div class="grid gap-3 sm:grid-cols-3 lg:grid-cols-5">
+                @foreach ($this->choices as $value => $option)
+                    <button type="button"
+                        wire:click="$set('choice', '{{ $value }}')"
+                        @disabled(! $option['ready'])
+                        aria-pressed="{{ $choice === $value ? 'true' : 'false' }}"
+                        @class([
+                            'flex flex-col items-start gap-2 rounded-xl border p-4 text-left transition',
+                            'border-accent bg-reko-yellow-soft' => $choice === $value,
+                            'border-zinc-200 bg-white hover:bg-reko-yellow-soft' => $choice !== $value && $option['ready'],
+                            'cursor-not-allowed border-zinc-200 bg-zinc-100 opacity-60' => ! $option['ready'],
+                        ])>
+                        {{-- <flux:icon :name="$option['icon']" class="size-6" /> --}}
+                        <span class="font-bold">{{ $option['title'] }}</span>
+                        <span class="text-sm text-zinc-500">{{ $option['ready'] ? $option['text'] : 'In arrivo' }}</span>
+                    </button>
+                @endforeach
+            </div>
+        </fieldset>
+
+        {{-- Solo per i locali: quale tipo --}}
+        @if ($choice === 'business')
+            <flux:select wire:model.live="businessType" label="Tipo di locale" class="max-w-md">
+                @foreach ($this->businessTypes as $key => $type)
+                    <flux:select.option value="{{ $key }}">{{ $type['label'] }}</flux:select.option>
                 @endforeach
             </flux:select>
-
-            <flux:radio.group wire:model.live="segment" label="Percorso" variant="segmented">
-                <flux:radio value="private" label="Privato" />
-                <flux:radio value="business" label="Business" />
-            </flux:radio.group>
-
-            @if ($segment === 'private')
-                <flux:select wire:model.live="housing" label="Cosa cerchi">
-                    <flux:select.option value="">Abitazioni</flux:select.option>
-                    <flux:select.option value="garage">Box auto</flux:select.option>
-                </flux:select>
-            @else
-                <flux:select wire:model.live="businessType" label="Tipo di immobile">
-                    @foreach ($this->businessTypes as $key => $type)
-                        <flux:select.option value="{{ $key }}">{{ $type['label'] }}</flux:select.option>
-                    @endforeach
-                </flux:select>
-            @endif
-        </div>
+        @endif
 
         {{-- Categorie: solo se c'è più di una scelta (per i box c'è solo C/6) --}}
         @if (count($this->selectableCategories) > 1)
