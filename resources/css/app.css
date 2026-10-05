@@ -112,3 +112,8 @@ select:focus[data-flux-control] {
 [data-flux-column] {
     background: var(--color-zinc-100);
 }
+
+/* Riga dei risultati accesa dalla mappa o dal mouse */
+.trova-row-active {
+    background: var(--color-reko-yellow-soft);
+}

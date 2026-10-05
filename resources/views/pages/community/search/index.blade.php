@@ -156,6 +156,7 @@ new class extends Component {
             if ($geometry !== null) {
                 $features[] = [
                     'type' => 'Feature',
+                    'id' => $row['parcel_id'], // serve a MapLibre per «accendere» la sagoma
                     'geometry' => $geometry,
                     'properties' => ['parcel' => $row['parcel_id'], 'address' => $row['address']],
                 ];
@@ -271,9 +272,19 @@ new class extends Component {
 
                     <flux:table.rows>
                         @foreach ($rows as $row)
-                            <flux:table.row :key="$row['parcel_id']">
-                                {{-- Indirizzo della particella --}}
-                                <flux:table.cell>{{ $row['address'] ?? 'Indirizzo non disponibile' }}</flux:table.cell>
+                            <flux:table.row :key="$row['parcel_id']" data-parcel="{{ $row['parcel_id'] }}"
+                                x-on:mouseenter="$dispatch('trova-highlight', { parcel: {{ $row['parcel_id'] }} })"
+                                x-on:mouseleave="$dispatch('trova-highlight', { parcel: null })">
+                                {{-- Indirizzo della particella: 📍 centra la mappa, il link apre la scheda --}}
+                                <flux:table.cell>
+                                    <div class="flex items-center gap-2">
+                                        <flux:button size="xs" variant="ghost" icon="map-pin" aria-label="Mostra sulla mappa"
+                                            x-on:click="$dispatch('trova-focus', { parcel: {{ $row['parcel_id'] }} })" />
+                                        <flux:link :href="route('community.search.parcels.show', $row['parcel_id'])" wire:navigate>
+                                            {{ $row['address'] ?? 'Indirizzo non disponibile' }}
+                                        </flux:link>
+                                    </div>
+                                </flux:table.cell>
 
                                 {{-- Sezione (se c'è), foglio, particella --}}
                                 <flux:table.cell>
@@ -303,7 +314,7 @@ new class extends Component {
                                 </flux:table.cell>
 
                                 {{-- Unità trovate: cliccando si apre l'elenco --}}
-                                <flux:table.cell>
+                                <flux:table.cell @click.stop>
                                     <details>
                                         <summary class="cursor-pointer">{{ $row['records'] }} unità</summary>
                                         <ul class="mt-2 space-y-1 text-sm">
@@ -336,6 +347,8 @@ new class extends Component {
         <div wire:ignore
          x-data="trovaMap(@js($this->mapFeatures))"
          x-on:trova-results.window="update($event.detail.features)"
+         x-on:trova-highlight.window="highlight($event.detail.parcel)"
+         x-on:trova-focus.window="focus($event.detail.parcel)"
          class="h-[600px] overflow-hidden rounded-xl border border-zinc-200 lg:sticky lg:top-6">
             <div x-ref="map" class="h-full w-full"></div>
         </div>
