@@ -50,6 +50,11 @@ class User extends Authenticatable implements PasskeyUser
         ];
     }
 
+
+    protected $attributes = [
+        'is_admin' => false,
+    ];
+
     /**
      * @return HasMany<AgencyMembership, $this>
      */
@@ -100,5 +105,23 @@ class User extends Authenticatable implements PasskeyUser
         return Str::length($initials) > 1
             ? Str::substr($initials, 0, 1) . Str::substr($initials, -1)
             : $initials;
+    }
+
+
+
+
+    // SCOPES
+
+
+
+    // UTILITIES
+
+
+
+    // HELPERS
+
+    public function isAdmin(): bool
+    {
+        return $this->is_admin;
     }
 }

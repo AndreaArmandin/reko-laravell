@@ -15,9 +15,22 @@ use Livewire\Livewire;
 it('creates the Trova foundation and defers CRM tables', function () {
     expect(DB::selectOne("select extname from pg_extension where extname = 'postgis'"))->not->toBeNull();
 
-    foreach (['agencies', 'agency_memberships', 'municipalities', 'parcels', 'cadastral_units',
-        'catalog_releases', 'municipality_catalogs', 'parcel_versions', 'cadastral_unit_versions',
-        'buildings', 'import_runs', 'import_issues'] as $table) {
+    foreach (
+        [
+            'agencies',
+            'agency_memberships',
+            'municipalities',
+            'parcels',
+            'cadastral_units',
+            'catalog_releases',
+            'municipality_catalogs',
+            'parcel_versions',
+            'cadastral_unit_versions',
+            'buildings',
+            'import_runs',
+            'import_issues'
+        ] as $table
+    ) {
         expect(Schema::hasTable($table))->toBeTrue($table);
     }
 
@@ -32,10 +45,16 @@ it('creates the Trova foundation and defers CRM tables', function () {
 it('distinguishes cadastral kind and units without subalterno', function () {
     $municipality = Municipality::query()->create(['cadastral_code' => 'F205', 'name' => 'Milano']);
     $fabbricato = Parcel::query()->create([
-        'municipality_id' => $municipality->id, 'cadastral_kind' => 'F', 'sheet' => '1', 'number' => '10',
+        'municipality_id' => $municipality->id,
+        'cadastral_kind' => 'F',
+        'sheet' => '1',
+        'number' => '10',
     ]);
     $terreno = Parcel::query()->create([
-        'municipality_id' => $municipality->id, 'cadastral_kind' => 'T', 'sheet' => '1', 'number' => '10',
+        'municipality_id' => $municipality->id,
+        'cadastral_kind' => 'T',
+        'sheet' => '1',
+        'number' => '10',
     ]);
     expect($fabbricato->id)->not->toBe($terreno->id);
 
@@ -45,11 +64,12 @@ it('distinguishes cadastral kind and units without subalterno', function () {
 
     expect(CadastralUnit::query()->where('parcel_id', $fabbricato->id)->count())->toBe(3);
 
-    expect(fn () => DB::transaction(fn () => CadastralUnit::query()->create([
-        'parcel_id' => $fabbricato->id, 'subalterno' => '1',
+    expect(fn() => DB::transaction(fn() => CadastralUnit::query()->create([
+        'parcel_id' => $fabbricato->id,
+        'subalterno' => '1',
     ])))->toThrow(QueryException::class);
 
-    expect(fn () => DB::transaction(fn () => CadastralUnit::query()->create([
+    expect(fn() => DB::transaction(fn() => CadastralUnit::query()->create([
         'parcel_id' => $fabbricato->id,
     ])))->toThrow(QueryException::class);
 });
@@ -63,8 +83,10 @@ it('keeps an agency separate from the user and the shared catalog', function () 
     expect($user->agencyMemberships()->first()->role)->toBe('scout');
     expect($user->fresh()->is_admin)->toBeFalse();
 
-    expect(fn () => DB::transaction(fn () => AgencyMembership::query()->create([
-        'agency_id' => $agency->id, 'user_id' => User::factory()->create()->id, 'role' => 'platform-admin',
+    expect(fn() => DB::transaction(fn() => AgencyMembership::query()->create([
+        'agency_id' => $agency->id,
+        'user_id' => User::factory()->create()->id,
+        'role' => 'platform-admin',
     ])))->toThrow(QueryException::class);
 });
 
@@ -82,25 +104,21 @@ it('lets only a platform admin create agencies and assign existing users', funct
     $member = User::factory()->create();
     $this->actingAs($admin);
 
-    Livewire::test('pages::admin.dashboard')
-        ->set('agencyName', 'Agenzia Demo')
-        ->call('createAgency')
+    Livewire::test('pages::admin.agencies.create')
+        ->set('name', 'Agenzia Demo')
+        ->call('save')
         ->assertHasNoErrors();
 
     $agency = Agency::query()->where('slug', 'agenzia-demo')->firstOrFail();
 
-    Livewire::test('pages::admin.dashboard')
+    Livewire::test('pages::admin.agencies.edit', ['agency' => $agency])
         ->set('memberEmail', $member->email)
-        ->set('agencyId', (string) $agency->id)
         ->set('memberRole', 'scout')
-        ->call('assignMember')
+        ->call('addMember')
         ->assertHasNoErrors();
 
     expect($member->fresh()->agencies()->first()->id)->toBe($agency->id);
 
     $this->actingAs($member);
-    Livewire::test('pages::admin.dashboard')
-        ->set('agencyName', 'Illecita')
-        ->call('createAgency')
-        ->assertForbidden();
+    Livewire::test('pages::admin.agencies.create')->assertForbidden();
 });

@@ -31,7 +31,7 @@ return new class extends Migration
         Postgis::addGeometry('parcel_search_points', 'location', 'Point');
         DB::statement('ALTER TABLE parcel_search_points ALTER COLUMN location SET NOT NULL');
         Postgis::gist('parcel_search_points', 'location');
-        Postgis::check('parcel_search_points', 'parcel_search_points_source_check', "length(trim(source)) > 0");
+        Postgis::check('parcel_search_points', 'parcel_search_points_source_check', 'length(trim(source)) > 0');
     }
 
     public function down(): void

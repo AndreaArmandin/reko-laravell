@@ -14,6 +14,9 @@ use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
+/**
+ * @return array{0: CatalogRelease, 1: Parcel}
+ */
 function trovaParcel(): array
 {
     $municipality = Municipality::query()->create(['cadastral_code' => 'D205', 'name' => 'Cuneo']);
@@ -31,8 +34,8 @@ function insertSearchPoint(int $parcelId, int $releaseId, ?string $point, string
 {
     DB::insert(
         'insert into parcel_search_points (parcel_id, catalog_release_id, source, location, created_at, updated_at)
-         values (?, ?, ?, '.($point === null ? 'null' : 'ST_GeomFromText(?, 4326)').', now(), now())',
-        array_values(array_filter([$parcelId, $releaseId, $source, $point], fn ($v) => $v !== null)),
+         values (?, ?, ?, ST_GeomFromText(?, 4326), now(), now())',
+        [$parcelId, $releaseId, $source, $point],
     );
 }
 
