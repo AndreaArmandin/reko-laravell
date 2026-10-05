@@ -15,3 +15,4 @@ DB_USERNAME=postgres
 DB_PASSWORD=la_password_del_server_locale
 ```
 
+# reko_laravell
