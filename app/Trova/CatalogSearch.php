@@ -5,7 +5,6 @@ namespace App\Trova;
 use App\Models\Municipality;
 use Illuminate\Support\Facades\DB;
 
-
 final class CatalogSearch
 {
     public const SORTS = ['best', 'address', 'surface-asc', 'surface-desc'];
@@ -28,12 +27,11 @@ final class CatalogSearch
         return $this->query($criteria, $municipality->id, $releaseId);
     }
 
-   
     // Validazione dei dati di input
     public static function validate(array $input): array
     {
 
-        //Codice comunale
+        // Codice comunale
         $code = is_string($input['code'] ?? null) ? strtoupper(trim($input['code'])) : '';
         if ($code === '') {
             throw new SearchException('Seleziona un Comune con archivio disponibile.');
@@ -265,6 +263,10 @@ final class CatalogSearch
                 (SELECT coalesce(json_agg(r ORDER BY r.position), '[]') FROM (
                     SELECT row_number() OVER (ORDER BY {$order}) position, pg.*,
                         ST_Y(sp.location) latitude, ST_X(sp.location) longitude,
+                        (SELECT ST_AsGeoJSON(ST_Multi(ST_Union(bv.footprint)))::json
+                         FROM building_parcel_links l
+                         JOIN building_versions bv ON bv.building_id = l.building_id AND bv.catalog_release_id = l.catalog_release_id
+                         WHERE l.parcel_id = pg.parcel_id AND l.catalog_release_id = ?) footprint,
                         (SELECT json_agg(json_build_object(
                                 'sub', m.subalterno, 'category', m.category, 'value', m.consistency,
                                 'measure', m.consistency_unit, 'address', m.address_raw)
@@ -275,7 +277,7 @@ final class CatalogSearch
                 ) r) rows";
 
         $offset = ($c['page'] - 1) * $c['pageSize'];
-        $result = DB::selectOne($sql, [...$args, $c['pageSize'], $offset, $releaseId]);
+        $result = DB::selectOne($sql, [...$args, $c['pageSize'], $offset, $releaseId, $releaseId]);
 
         return new CatalogSearchResult(
             total: (int) $result->total,

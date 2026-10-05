@@ -6,8 +6,12 @@ use App\Trova\CatalogSearch;
 use App\Trova\SearchException;
 use Livewire\Attributes\Computed;
 use Livewire\Component;
+use Illuminate\Pagination\LengthAwarePaginator;
+use Livewire\WithPagination;
 
 new class extends Component {
+    use WithPagination;
+
     public string $code = 'X001';
     public string $segment = 'private'; // 'private' | 'business'
     public string $housing = ''; // '' = abitazioni, 'garage' = box
@@ -32,16 +36,16 @@ new class extends Component {
 
     public function search(): void
     {
-        $this->page = 1;
-        $this->run();
+        $this->resetPage();
     }
 
-    public function goToPage(int $page): void
+    public function updatedPage(): void
     {
-        $this->page = $page;
         $this->run();
     }
 
+    
+    
     private function run(): void
     {
         $this->resetErrorBag();
@@ -62,8 +66,8 @@ new class extends Component {
                 'sheet' => $this->sheet,
                 'parcel' => $this->parcel,
                 'sort' => $this->sort,
-                'page' => $this->page,
                 'pageSize' => (int) $this->pageSize,
+                'page' => (int) $this->getPage(),
             ]);
         } catch (SearchException $e) {
             $this->addError('search', $e->getMessage());
@@ -77,6 +81,12 @@ new class extends Component {
         $this->units = $result->matchedUnits;
         $this->pages = $result->pages();
         $this->measure = $result->measure;
+
+        
+        // Pulisci le features della mappa
+        unset($this->mapFeatures);
+        // Avverti il componente JS che i risultati sono pronti con un evento dispatch
+        $this->dispatch('trova-results', features: $this->mapFeatures);
     }
 
     #[Computed]
@@ -126,11 +136,39 @@ new class extends Component {
     {
         return $value === null ? '—' : str_replace('.', ',', (string) (float) $value);
     }
+
+    #[Computed]
+    public function paginator(): LengthAwarePaginator
+    {
+        return new LengthAwarePaginator($this->rows, $this->total, (int) $this->pageSize, $this->getPage());
+    }
+
+    // Una sagoma per particella; se non c'è, la puntina
+    #[Computed]
+    public function mapFeatures(): array
+    {
+        $features = [];
+        foreach ($this->rows as $row) {
+            $geometry = $row['footprint'] ?? ($row['latitude'] !== null
+                ? ['type' => 'Point', 'coordinates' => [$row['longitude'], $row['latitude']]]
+                : null);
+
+            if ($geometry !== null) {
+                $features[] = [
+                    'type' => 'Feature',
+                    'geometry' => $geometry,
+                    'properties' => ['parcel' => $row['parcel_id'], 'address' => $row['address']],
+                ];
+            }
+        }
+
+        return $features;
+    }
 };
 
 ?>
 
-<div class="mx-auto max-w-6xl space-y-6 p-6">
+<div class="mx-auto max-w-screen-2xl space-y-6 p-6">
     <form wire:submit="search" class="space-y-6">
         {{-- Comune, percorso, tipo --}}
         <div class="grid gap-4 md:grid-cols-3">
@@ -214,7 +252,9 @@ new class extends Component {
 
     {{-- Risultati della ricerca --}}
     @if ($searched && !$errors->has('search'))
-        <div class="space-y-4">
+        {{-- Lista a sinistra, mappa a destra (una sotto l'altra sugli schermi piccoli) --}}
+        <div class="">
+        <div class="min-w-0 space-y-4">
             <flux:heading size="lg">{{ $total }} particelle · {{ $units }} unità</flux:heading>
 
             @if ($total === 0)
@@ -285,17 +325,20 @@ new class extends Component {
                 </flux:table>
 
                 {{-- Pagine --}}
-                <div class="flex items-center justify-between">
-                    <flux:button wire:click="goToPage({{ $page - 1 }})" :disabled="$page <= 1" icon="chevron-left">
-                        Precedente
-                    </flux:button>
-                    <flux:text>Pagina {{ $page }} di {{ $pages }}</flux:text>
-                    <flux:button wire:click="goToPage({{ $page + 1 }})" :disabled="$page >= $pages"
-                        icon-trailing="chevron-right">
-                        Successiva
-                    </flux:button>
+                <div class="flex items-center justify-center">
+            
+                    {{ $this->paginator->links() }}
+                
                 </div>
             @endif
+        </div>
+
+        <div wire:ignore
+         x-data="trovaMap(@js($this->mapFeatures))"
+         x-on:trova-results.window="update($event.detail.features)"
+         class="h-[600px] overflow-hidden rounded-xl border border-zinc-200 lg:sticky lg:top-6">
+            <div x-ref="map" class="h-full w-full"></div>
+        </div>
         </div>
     @endif
 </div>
