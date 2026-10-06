@@ -1,0 +1,93 @@
+/* Daily work: stable reading order and direct contextual actions. */
+.crm-app .reko-widget-grid{align-items:start}
+.crm-app .crm-record-management{margin:12px 0 20px;font-size:.875rem;color:var(--ui-muted,#53615a)}
+.crm-app .crm-record-management[open]{padding:16px;border:1px solid var(--ui-line,#d7ded9);border-radius:10px}
+.crm-app .crm-client-list,.crm-app .crm-request-list{padding:0;border:0;background:transparent;box-shadow:none;display:grid;gap:18px}
+.crm-app .crm-client-list>.crm-compact-client,.crm-app .crm-request-list>article{padding:20px 24px;background:#fff;border:1px solid var(--ui-line,#d7ded9);border-radius:14px;margin:0;min-width:0}
+.crm-app .crm-client-row{display:grid;grid-template-columns:auto minmax(0,1fr) auto auto;gap:14px;align-items:start;padding:0 0 16px;text-align:left}
+.crm-app .crm-client-row>.crm-grow{min-width:0}
+.crm-app .crm-client-row strong{display:block;font-size:1.1rem;line-height:1.45;word-break:normal;overflow-wrap:break-word}
+.crm-app .crm-client-row small{font-size:.875rem;line-height:1.5}
+.crm-app .crm-client-row>.crm-row-tail{min-width:0;display:grid;gap:6px;justify-items:end}
+.crm-app .crm-client-contact-links{display:flex;flex-wrap:wrap;gap:10px 18px;padding-block:10px;border-top:1px solid var(--ui-line,#d7ded9)}
+.crm-app .crm-client-contact-links>a{display:inline-flex;align-items:center;min-height:36px;font-size:.9375rem;overflow-wrap:anywhere}
+.crm-app .crm-state-filter{display:flex;flex-wrap:wrap;gap:12px;align-items:end}
+.crm-app .crm-state-filter>.crm-field{display:grid}
+.crm-app .crm-request-list .crm-record-row{padding:0 0 16px}
+.crm-app .crm-profile{max-width:none;width:100%;margin:24px 0;padding:24px;border-radius:14px}
+.crm-app .crm-profile-top{align-items:flex-start;flex-wrap:wrap}
+.crm-app .crm-review-grid{margin-top:18px;gap:14px}
+.crm-app .crm-review-grid>button{align-items:flex-start;gap:16px;padding:18px;min-width:0;line-height:1.5}
+.crm-app .crm-review-grid>button>span{min-width:0;flex:1}
+.crm-app .crm-review-grid>button>svg{flex-shrink:0;margin-top:4px}
+.crm-app .crm-review-grid small{font-size:.9375rem;line-height:1.5}
+.crm-app .crm-review-grid strong{font-size:1.0625rem;line-height:1.5;word-break:normal;overflow-wrap:break-word}
+.crm-app .crm-detail-grid{align-items:start;margin-top:24px;gap:20px}
+.crm-app .crm-facts{display:grid;gap:16px}
+.crm-app .crm-facts dt{font-size:.875rem;color:var(--ui-muted,#53615a)}
+.crm-app .crm-facts dd{margin:6px 0 0;overflow-wrap:anywhere;line-height:1.5}
+.crm-app .crm-request-row.crm-request-row--single{grid-template-columns:minmax(0,1fr) auto}
+.crm-app .crm-request-row.crm-request-row--single>.crm-grow,.crm-app .crm-request-row.crm-request-row--single>.crm-row-tail{grid-column:1}
+.crm-app .crm-request-row.crm-request-row--single>svg{grid-column:2}
+.crm-app .crm-request-row{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:12px;text-align:left;align-items:start}
+.crm-app .crm-request-row>.crm-grow{grid-column:2;min-width:0}
+.crm-app .crm-request-row>.crm-row-tail{grid-column:2;grid-row:2;min-width:0;width:100%;align-items:flex-start;gap:8px}
+.crm-app .crm-request-row>svg{grid-column:3;grid-row:1}
+.crm-app .crm-request-row strong,.crm-app .crm-request-row small{word-break:normal;overflow-wrap:break-word;line-height:1.5}
+.crm-app .crm-request-row .crm-answer-progress{display:grid;grid-template-columns:1fr;gap:6px;width:100%;min-width:0}
+.crm-app .crm-request-row .crm-answer-progress progress{width:100%;max-width:none}
+.crm-app .reko-widget-body>article+article{border-top:1px solid var(--crm-border,#d7ded9)}
+.crm-app .crm-timeline-heading{display:grid;gap:4px;min-width:0}
+.crm-app .crm-timeline-heading>strong{line-height:1.45;overflow-wrap:break-word}
+.crm-app .crm-timeline-heading time{font-size:.875rem;color:var(--crm-muted,#53615a);white-space:normal}
+.crm-app .crm-timeline-metadata{display:block;margin-top:8px}
+.crm-app .crm-timeline article{padding-block:20px}
+.crm-app .crm-activity-row-actions{display:flex;flex-wrap:wrap;align-items:start;gap:8px;margin-top:12px}
+.crm-app .crm-activity-row-actions>.crm-row-menu{flex:0 1 auto;width:auto}
+.crm-app .crm-activity-row-actions>.crm-row-menu>summary{min-height:42px}
+.crm-app .crm-context-actions.crm-direct-activities{display:flex;flex-wrap:wrap;gap:10px;justify-content:flex-start;padding:0}
+.crm-app .crm-record-activities{margin-top:18px;padding:16px 0 0;border:0;border-top:1px solid var(--crm-border,#d7ded9);border-radius:0}
+.crm-app .crm-record-activities.compact{padding:16px 0 0}
+.crm-app .crm-activity-summary{gap:16px;margin-bottom:16px}
+.crm-app .crm-activity-summary h3{font-size:.875rem;color:var(--crm-muted,#53615a);font-weight:500;margin-bottom:6px}
+.crm-app .crm-activity-summary p{margin:6px 0 0}
+.crm-app .census-person-record,.crm-app .census-unit-record{padding:24px;margin-block:18px;background:#fff}
+.crm-app .census-person-head{gap:12px;align-items:center}
+.crm-app .census-person-head h3{font-size:1.1rem;max-width:75ch;line-height:1.5;margin:0 0 10px;overflow-wrap:break-word}
+.crm-app .census-person-head>div:first-child{display:flex;flex-direction:column;align-items:flex-start;gap:8px}
+.crm-app .census-person-head .census-contact{margin:0 0 8px}
+.crm-app .census-unit-head strong{font-size:1.1rem;line-height:1.5}
+.crm-app .census-unit-head small{display:block;margin-top:5px}
+.crm-app .census-unit-facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(108px,1fr));gap:16px;margin-block:18px;padding-block:16px}
+.crm-app .census-unit-facts>div{min-width:0}
+.crm-app .census-unit-facts dt{font-size:.875rem;color:var(--crm-muted,#53615a)}
+.crm-app .census-unit-facts dd{font-family:inherit;line-height:1.5;margin:6px 0 0;word-break:normal;overflow-wrap:break-word}
+.crm-app .census-unit-body{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr);gap:24px;align-items:start}
+.crm-app .census-unit-body h4{font-size:.875rem;letter-spacing:0;text-transform:none;color:var(--crm-muted,#53615a);margin:0 0 10px}
+.crm-app .census-owner-in-unit{padding:12px 0;margin:0}
+.crm-app .census-contact-text{margin:8px 0;overflow-wrap:anywhere}
+.crm-app .census-source{margin-top:18px;font-size:.875rem}
+.crm-app .crm-daily-goal{display:grid;grid-template-columns:1fr;gap:8px;padding:16px;margin-block:12px}
+.crm-app .crm-daily-goal progress{width:100%}
+.crm-app .crm-daily-goals h2{font-size:1rem;margin-top:0}
+.crm-app .crm-goal-counting{font-size:.875rem;margin:16px 0}
+.crm-daily-activity-form{gap:20px}
+.crm-daily-activity-form .crm-activity-context{display:grid;gap:6px;padding:16px;border:1px solid #d7ded9;border-radius:10px;background:#f5f7f5}
+.crm-daily-activity-form .crm-activity-context>span,.crm-daily-activity-form .crm-activity-context>small{font-size:.875rem;color:#53615a}
+.crm-daily-activity-form .crm-activity-context p{margin:0}
+.crm-daily-activity-form .crm-field textarea{min-height:100px}
+.crm-daily-activity-form .crm-followup-fields{display:grid;gap:16px}
+.crm-daily-activity-form .crm-activity-audit{margin:0;font-size:.875rem;color:#53615a;line-height:1.5}
+@media(max-width:700px){.crm-app .census-unit-body{grid-template-columns:1fr;gap:18px}.crm-app .census-person-record,.crm-app .census-unit-record,.crm-app .crm-client-list>.crm-compact-client,.crm-app .crm-request-list>article{padding:18px}.crm-app .crm-direct-activities>.crm-btn{flex:1 1 180px}.crm-app .crm-activity-summary{grid-template-columns:1fr}.crm-app .crm-client-row{grid-template-columns:auto minmax(0,1fr) auto}.crm-app .crm-client-row>.crm-row-tail{grid-column:2;grid-row:2;justify-items:start;margin:0}.crm-app .crm-client-row>svg{grid-column:3;grid-row:1}.crm-app .crm-profile{padding:18px}.crm-app .crm-profile .crm-review-grid{grid-template-columns:1fr}}
+
+.census-paste-section{display:grid;gap:12px;padding:20px;border:1px solid #d7ded9;border-radius:12px;background:#fff}
+.census-paste-section .crm-field>span{font-size:1.125rem;font-weight:700;color:#192420}
+.census-paste-section textarea{min-height:140px;resize:vertical}
+.census-paste-section p{margin:0;font-size:.875rem;line-height:1.5}
+.census-paste-section details{font-size:.875rem}
+.census-import-target{display:grid;gap:8px;padding:16px;border-left:4px solid #ffca37;background:#fff8df;border-radius:8px}
+.census-import-target p{margin:0;font-size:.875rem}
+
+.census-paste-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px;align-items:start}
+.census-paste-grid>.census-paste-section{min-width:0;height:100%}
+@media(max-width:700px){.census-paste-grid{grid-template-columns:1fr}.census-paste-section{padding:16px}}

@@ -83,7 +83,7 @@ new #[Layout('layouts::trova')] class extends Component {
                 <p class="reko-home-lead">Parti dalla richiesta del cliente, anche quando l’immobile giusto non è nel tuo portafoglio.</p>
                 <div class="reko-home-actions">
                     <a class="reko-action-primary" href="{{ route('trova') }}"><x-trova.icon name="search" size="22" />Trova immobili<x-trova.icon name="arrow-right" size="20" /></a>
-                    <a class="reko-action-secondary" href="{{ route('dashboard') }}">Apri Gestionale</a>
+                    <a class="reko-action-secondary" href="{{ route('gestionale.home') }}">Apri Gestionale</a>
                 </div>
                 <p class="reko-home-note">Accesso riservato agli account autorizzati.</p>
             </div>

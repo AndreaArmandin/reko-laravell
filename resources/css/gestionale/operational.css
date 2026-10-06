@@ -1,0 +1,12 @@
+.crm-overdue-section{border-inline-start:4px solid #a43131;margin-block:1rem}
+.crm-operational-filters{margin-block:1rem}.crm-operational-filters>summary{cursor:pointer;min-height:44px;display:flex;align-items:center;gap:.5rem}
+.crm-quick-postpone{display:flex;flex-wrap:wrap;gap:.45rem}.crm-quick-postpone button{min-height:44px}
+.crm-compact-client{padding-block:.4rem;border-bottom:1px solid var(--crm-border,#e2e6e8)}
+.crm-compact-client .crm-record-row{border-bottom:0}
+.crm-compact-client-summary{margin:.2rem 0 .55rem;display:flex;flex-wrap:wrap;gap:.35rem .8rem;font-size:.9rem}
+.crm-client-contact-links{display:flex;flex-wrap:wrap;gap:.25rem .75rem;align-items:center;overflow-wrap:anywhere}
+.crm-client-contact-links a{display:inline-flex;align-items:center;min-height:44px}
+.crm-compact-client-actions{display:flex;justify-content:space-between;gap:.5rem;align-items:center;flex-wrap:wrap}
+.crm-daily-goal{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:.55rem;margin-block:.75rem}
+.crm-daily-goal progress,.crm-daily-goal small{grid-column:1/-1;width:100%}
+@media(max-width:600px){.crm-daily-goal{grid-template-columns:1fr}.crm-compact-client .crm-row-tail{max-width:50%}.crm-quick-postpone{width:100%}}

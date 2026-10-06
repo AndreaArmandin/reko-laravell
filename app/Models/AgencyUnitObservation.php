@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\BelongsToAgency;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
@@ -10,6 +11,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  */
 class AgencyUnitObservation extends Model
 {
+    use BelongsToAgency;
+
     protected $table = 'agency_unit_observations';
 
     protected $guarded = ['id'];
@@ -21,6 +24,7 @@ class AgencyUnitObservation extends Model
     {
         return [
             'observed_on' => 'date',
+            'data' => 'array',
         ];
     }
 

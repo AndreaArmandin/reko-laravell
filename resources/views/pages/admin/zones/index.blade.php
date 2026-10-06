@@ -24,6 +24,7 @@ new #[Title('Zone di ricerca')] class extends Component {
     public ?array $checked = null;
     public ?array $preview = null;
     public ?string $done = null;
+    public ?string $checkToken = null;
 
     // Check di controllo accessi per l'amministratore
     public function boot(): void
@@ -37,6 +38,7 @@ new #[Title('Zone di ricerca')] class extends Component {
         $this->checked = null;
         $this->preview = null;
         $this->done = null;
+        $this->checkToken = null;
         $this->resetErrorBag();
     }
 
@@ -100,11 +102,13 @@ new #[Title('Zone di ricerca')] class extends Component {
     // Primo passo: controlla il file senza scrivere nulla
     public function check(): void
     {
-        $this->checked = $this->preview = $this->done = null;
+        $this->checked = $this->preview = $this->done = $this->checkToken = null;
 
         if ($run = $this->run(true)) {
             $this->checked = $this->summary($run);
             $this->preview = ZonePreview::fromFile($this->file->getRealPath(), trim($this->nameProperty));
+            $payload = $this->checkPayload();
+            $this->checkToken = hash_hmac('sha256', $payload, (string) config('app.key'));
         }
     }
 
@@ -112,6 +116,13 @@ new #[Title('Zone di ricerca')] class extends Component {
     public function import(): void
     {
         if ($this->checked === null || ($this->checked['imported'] ?? 0) === 0) {
+            return;
+        }
+
+        if ($this->file === null || $this->checkToken === null
+            || ! hash_equals(hash_hmac('sha256', $this->checkPayload(), (string) config('app.key')), $this->checkToken)) {
+            $this->checked = $this->preview = $this->checkToken = null;
+            $this->addError('file', 'Il file o le opzioni sono cambiate dopo il controllo. Controlla di nuovo prima di importare.');
             return;
         }
 
@@ -126,9 +137,28 @@ new #[Title('Zone di ricerca')] class extends Component {
             'local',
         )]);
 
+        if ($run->status !== 'done') {
+            $this->addError('file', $run->issues()->where('code', 'replacement-not-applied')->value('message')
+                ?? 'Import non completato. Le zone già presenti sono state conservate.');
+            $this->checked = $this->preview = $this->checkToken = null;
+            unset($this->runs);
+            return;
+        }
+
         $this->done = "Importate {$run->rows_imported} zone".($run->rows_rejected ? ", scartate {$run->rows_rejected}" : '').'.';
-        $this->reset('file', 'checked', 'preview');
+        $this->reset('file', 'checked', 'preview', 'checkToken');
         unset($this->runs);
+    }
+
+    private function checkPayload(): string
+    {
+        return hash('sha256', (string) file_get_contents($this->file->getRealPath())).'|'.json_encode([
+            'municipality' => $this->municipalityId,
+            'name' => trim($this->nameProperty),
+            'id' => trim($this->idProperty),
+            'only' => trim($this->only),
+            'replace' => $this->replace,
+        ], JSON_THROW_ON_ERROR);
     }
 };
 ?>

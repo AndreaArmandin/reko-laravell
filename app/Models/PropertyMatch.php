@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\BelongsToAgency;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
@@ -10,9 +11,16 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  */
 class PropertyMatch extends Model
 {
+    use BelongsToAgency;
+
     protected $table = 'property_matches';
 
     protected $guarded = ['id'];
+
+    protected function casts(): array
+    {
+        return ['result' => 'array', 'visit_at' => 'datetime'];
+    }
 
     /**
      * @return BelongsTo<Agency, $this>

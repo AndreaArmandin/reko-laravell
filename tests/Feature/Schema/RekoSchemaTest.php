@@ -12,7 +12,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Livewire\Livewire;
 
-it('creates the Trova foundation and defers CRM tables', function () {
+it('creates the Trova foundation, the gestionale foundations, and defers the other CRM tables', function () {
     expect(DB::selectOne("select extname from pg_extension where extname = 'postgis'"))->not->toBeNull();
 
     foreach (
@@ -28,13 +28,21 @@ it('creates the Trova foundation and defers CRM tables', function () {
             'cadastral_unit_versions',
             'buildings',
             'import_runs',
-            'import_issues'
+            'import_issues',
+            'audit_events',
+            'legacy_entity_refs',
+            'idempotency_keys',
+            'contacts',
+            'contact_channels',
+            'client_profiles',
+            'question_set_versions',
+            'property_requests',
         ] as $table
     ) {
         expect(Schema::hasTable($table))->toBeTrue($table);
     }
 
-    foreach (['contacts', 'properties', 'activities', 'acquisitions'] as $table) {
+    foreach (['properties', 'activities', 'acquisitions', 'favorites', 'search_history', 'housing_contexts'] as $table) {
         expect(Schema::hasTable($table))->toBeFalse($table);
     }
 

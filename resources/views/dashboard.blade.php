@@ -1,44 +1,57 @@
 <x-layouts::app :title="__('Dashboard')">
-    <div class="flex h-full w-full flex-1 flex-col gap-6">
-        <div class="max-w-3xl">
-            <h1 class="text-2xl font-semibold text-zinc-900 dark:text-zinc-100">REKO</h1>
-            <p class="mt-2 text-sm leading-6 text-zinc-600 dark:text-zinc-300">
-                You are signed in. This installation is the cadastral foundation: Livewire authentication and the PostgreSQL schema. Search, importers, CRM screens, and the map are not in this slice.
-            </p>
-        </div>
+    @php
+        $memberships = app(\App\Gestionale\CurrentAgency::class)->available();
+        $roles = ['admin' => 'Responsabile', 'crm' => 'Segreteria', 'scout' => 'Operatore'];
+    @endphp
 
-        @if (auth()->user()->is_admin)
-            <a href="{{ route('admin.dashboard') }}" class="inline-flex w-fit rounded bg-zinc-900 px-4 py-2 text-sm text-white dark:bg-zinc-100 dark:text-zinc-900">Apri amministrazione</a>
-        @endif
+    <div class="mx-auto flex w-full max-w-6xl flex-col gap-8">
+        <header>
+            <flux:heading size="xl" level="1">REKO</flux:heading>
+            <flux:text class="mt-1">Scegli l’area di lavoro.</flux:text>
+        </header>
 
-        <section class="rounded-xl border border-neutral-200 p-5 dark:border-neutral-700">
-            <h2 class="font-medium text-zinc-900 dark:text-zinc-100">Le tue agenzie</h2>
-            @forelse (auth()->user()->agencyMemberships()->with('agency')->get() as $membership)
-                <p class="mt-2 text-sm text-zinc-600 dark:text-zinc-300">{{ $membership->agency->name }} · {{ $membership->role }}</p>
-            @empty
-                <p class="mt-2 text-sm text-zinc-600 dark:text-zinc-300">Non sei ancora assegnato a un'agenzia. Chiedi all'amministratore di aggiungerti.</p>
-            @endforelse
+        <section class="grid gap-4 md:grid-cols-2">
+            <flux:card class="flex flex-col gap-4">
+                <div>
+                    <flux:heading size="lg">Trova</flux:heading>
+                    <flux:text class="mt-1">Cerca immobili e terreni nel catalogo catastale.</flux:text>
+                </div>
+                <flux:button class="w-fit" icon="magnifying-glass" :href="route('trova')">Apri Trova</flux:button>
+            </flux:card>
+
+            <flux:card class="flex flex-col gap-4">
+                <div>
+                    <flux:heading size="lg">Gestionale</flux:heading>
+                    <flux:text class="mt-1">Gestisci clienti, richieste e attività della tua agenzia.</flux:text>
+                </div>
+                @forelse ($memberships as $membership)
+                    <form method="POST" action="{{ route('gestionale.enter', $membership->agency_id) }}">
+                        @csrf
+                        <flux:button type="submit" class="w-fit" icon="arrow-right">
+                            {{ $membership->agency->name }} · {{ $roles[$membership->role] ?? $membership->role }}
+                        </flux:button>
+                    </form>
+                @empty
+                    <flux:text size="sm">Il tuo account non è ancora collegato a un’agenzia.</flux:text>
+                    @if (auth()->user()->isAdmin())
+                        <flux:callout icon="information-circle">
+                            <flux:callout.heading>Collega un account per aprire il Gestionale</flux:callout.heading>
+                            <flux:callout.text>In Amministrazione → Agenzie puoi associare un utente registrato e assegnargli il ruolo nell’agenzia.</flux:callout.text>
+                        </flux:callout>
+                    @endif
+                @endforelse
+            </flux:card>
         </section>
 
-        <div class="grid gap-4 md:grid-cols-3">
-            <section class="rounded-xl border border-neutral-200 p-5 dark:border-neutral-700">
-                <h2 class="font-medium text-zinc-900 dark:text-zinc-100">Identity and versions</h2>
-                <p class="mt-2 text-sm leading-6 text-zinc-600 dark:text-zinc-300">
-                    Parcels, units, and buildings keep a stable identity. Attributes change on a catalog release.
-                </p>
+        @if (auth()->user()->isAdmin())
+            <section>
+                <flux:heading size="lg">Amministrazione REKO</flux:heading>
+                <flux:text class="mt-1">Gestisci agenzie, cataloghi e zone di ricerca.</flux:text>
+                <div class="mt-3 flex flex-wrap gap-2">
+                    <flux:button variant="primary" icon="squares-2x2" :href="route('admin.dashboard')">Apri amministrazione</flux:button>
+                    <flux:button variant="ghost" :href="route('admin.agencies.index')">Gestisci le agenzie</flux:button>
+                </div>
             </section>
-            <section class="rounded-xl border border-neutral-200 p-5 dark:border-neutral-700">
-                <h2 class="font-medium text-zinc-900 dark:text-zinc-100">One release per municipality</h2>
-                <p class="mt-2 text-sm leading-6 text-zinc-600 dark:text-zinc-300">
-                    municipality_catalogs points each comune at the catalog release currently in force.
-                </p>
-            </section>
-            <section class="rounded-xl border border-neutral-200 p-5 dark:border-neutral-700">
-                <h2 class="font-medium text-zinc-900 dark:text-zinc-100">Missing data stays null</h2>
-                <p class="mt-2 text-sm leading-6 text-zinc-600 dark:text-zinc-300">
-                    Areas, rendite, and geometries are nullable. Nothing is stored as zero when the source did not provide it.
-                </p>
-            </section>
-        </div>
+        @endif
     </div>
 </x-layouts::app>

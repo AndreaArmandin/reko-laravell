@@ -2,15 +2,20 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\BelongsToAgency;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 /**
- * Stored search. result_count stays null when it was not recorded.
+ * Receipt of a command already executed (see App\Gestionale\Idempotency).
  */
-class SearchHistoryEntry extends Model
+class IdempotencyKey extends Model
 {
-    protected $table = 'search_history';
+    use BelongsToAgency;
+
+    public const UPDATED_AT = null;
+
+    protected $table = 'idempotency_keys';
 
     protected $guarded = ['id'];
 
@@ -20,16 +25,8 @@ class SearchHistoryEntry extends Model
     protected function casts(): array
     {
         return [
-            'filters' => 'array',
+            'response' => 'array',
         ];
-    }
-
-    /**
-     * @return BelongsTo<Agency, $this>
-     */
-    public function agency(): BelongsTo
-    {
-        return $this->belongsTo(Agency::class);
     }
 
     /**

@@ -8,7 +8,9 @@ use Illuminate\Support\Facades\Schema;
 return new class extends Migration
 {
     /**
-     * Agency properties, mandates, requests, question sets, and matches.
+     * Agency properties, mandates and matches (draft, Phase 3+).
+     * question_set_versions and property_requests are active since
+     * database/migrations/2026_10_08_000080 and 2026_10_08_000090.
      */
     public function up(): void
     {
@@ -68,42 +70,6 @@ return new class extends Migration
             $table->timestamps();
         });
 
-        Schema::create('property_requests', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('agency_id')->constrained()->cascadeOnDelete();
-            $table->foreignId('contact_id')->nullable()->constrained()->nullOnDelete();
-            $table->string('title');
-            $table->string('status');
-            $table->decimal('budget_min', 14, 2)->nullable();
-            $table->decimal('budget_max', 14, 2)->nullable();
-            $table->text('notes')->nullable();
-            $table->jsonb('criteria')->nullable();
-            $table->timestamps();
-        });
-
-        Schema::create('question_set_versions', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('agency_id')->nullable()->constrained()->cascadeOnDelete();
-            $table->string('code');
-            $table->unsignedInteger('version');
-            $table->jsonb('questions');
-            $table->timestamp('published_at')->nullable();
-            $table->timestamps();
-        });
-
-        Postgis::uniqueIndex(
-            'question_set_versions_platform_unique',
-            'question_set_versions',
-            'code, version',
-            'agency_id IS NULL',
-        );
-        Postgis::uniqueIndex(
-            'question_set_versions_agency_unique',
-            'question_set_versions',
-            'agency_id, code, version',
-            'agency_id IS NOT NULL',
-        );
-
         Schema::create('property_matches', function (Blueprint $table) {
             $table->id();
             $table->foreignId('agency_id')->constrained()->cascadeOnDelete();
@@ -123,8 +89,6 @@ return new class extends Migration
     public function down(): void
     {
         Schema::dropIfExists('property_matches');
-        Schema::dropIfExists('question_set_versions');
-        Schema::dropIfExists('property_requests');
         Schema::dropIfExists('mandates');
         Schema::dropIfExists('property_contacts');
         Schema::dropIfExists('property_units');

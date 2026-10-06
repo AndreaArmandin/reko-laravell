@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\BelongsToAgency;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -11,9 +12,16 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  */
 class ScoutingZone extends Model
 {
+    use BelongsToAgency;
+
     protected $table = 'scouting_zones';
 
     protected $guarded = ['id'];
+
+    protected function casts(): array
+    {
+        return ['municipalities' => 'array', 'starts_on' => 'date'];
+    }
 
     /**
      * @return BelongsTo<Agency, $this>

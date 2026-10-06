@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\BelongsToAgency;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -11,18 +12,21 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  */
 class Activity extends Model
 {
+    use BelongsToAgency;
+
     protected $table = 'activities';
 
     protected $guarded = ['id'];
 
-    /**
-     * @return array<string, string>
-     */
     protected function casts(): array
     {
         return [
             'scheduled_at' => 'datetime',
             'completed_at' => 'datetime',
+            'outcome_confirmed_at' => 'datetime',
+            'cancelled_at' => 'datetime',
+            'metadata' => 'array',
+            'updated_at' => 'immutable_datetime',
         ];
     }
 
@@ -56,6 +60,11 @@ class Activity extends Model
     public function contact(): BelongsTo
     {
         return $this->belongsTo(Contact::class);
+    }
+
+    public function propertyRequest(): BelongsTo
+    {
+        return $this->belongsTo(PropertyRequest::class);
     }
 
     /**

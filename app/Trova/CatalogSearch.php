@@ -534,7 +534,7 @@ final class CatalogSearch
                          JOIN building_versions bv ON bv.building_id = l.building_id AND bv.catalog_release_id = l.catalog_release_id
                          WHERE l.parcel_id = pg.parcel_id AND l.catalog_release_id = ?) footprint,
                         (SELECT json_agg(json_build_object(
-                                'sub', m.subalterno, 'category', m.category, 'value', m.consistency,
+                                'id', m.unit_id, 'sub', m.subalterno, 'category', m.category, 'value', m.consistency,
                                 'measure', m.consistency_unit, 'address', m.address_raw, 'levels', to_json(m.v4_levels),
                                 'housing', CASE WHEN m.housing_outcome IS NOT NULL THEN json_build_object(
                                     'esito', m.housing_outcome, 'conf', m.housing_confidence,

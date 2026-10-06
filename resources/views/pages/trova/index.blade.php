@@ -801,6 +801,9 @@ new #[Layout('layouts::trova')] class extends Component {
             <button type="button" class="trova-utility" aria-label="Immobili salvati" x-on:click="$refs.favorites.showModal()">
                 <x-trova.icon name="star" size="19" /> <span>Immobili salvati</span>
             </button>
+            <a class="trova-utility" href="{{ route('gestionale.home') }}" aria-label="Apri il Gestionale">
+                <x-trova.icon name="contact-round" size="19" /><span>Gestionale</span>
+            </a>
             <a class="trova-utility" href="{{ route('home') }}" aria-label="Esci da Trova">
                 <x-trova.icon name="x" size="20" /><span>Esci da Trova</span>
             </a>
@@ -1018,6 +1021,10 @@ new #[Layout('layouts::trova')] class extends Component {
                                                     <button class="crm-link reko-show-on-map" x-on:click="$store.trova.selected = '{{ $id }}'; view = 'map'; $dispatch('trova-fly', { id: '{{ $id }}' })"><x-trova.icon name="map-pin" size="16" />Vedi sulla mappa</button>
                                                 @else
                                                     <p class="reko-filter-note">Posizione cartografica non disponibile.</p>
+                                                @endif
+                                                @php($agencyMembership = app(\App\Gestionale\CurrentAgency::class)->membership())
+                                                @if ($agencyMembership && in_array($agencyMembership->role, ['admin', 'crm'], true))
+                                                    <a class="crm-btn secondary mt-3 inline-flex" href="{{ route('gestionale.properties.create', ['unitIds' => collect($row['units'])->pluck('id')->filter()->values()->all()]) }}">Aggiungi al portafoglio</a>
                                                 @endif
                                             </div></div>
                                         </article>

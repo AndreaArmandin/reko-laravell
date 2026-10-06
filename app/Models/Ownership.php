@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\BelongsToAgency;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
@@ -10,6 +11,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  */
 class Ownership extends Model
 {
+    use BelongsToAgency;
+
     protected $table = 'ownerships';
 
     protected $guarded = ['id'];
@@ -22,6 +25,7 @@ class Ownership extends Model
         return [
             'valid_from' => 'date',
             'valid_to' => 'date',
+            'details' => 'array',
         ];
     }
 

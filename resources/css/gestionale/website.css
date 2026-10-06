@@ -1,0 +1,18 @@
+@import './workspace.css';
+.reko-account{min-height:100vh;background:var(--ui-surface);color:var(--ui-ink);padding:clamp(20px,5vw,64px);max-width:1400px;margin:auto;font-family:var(--ui-font)}
+.reko-account>h1{font-size:clamp(30px,5vw,46px);margin:32px 0 16px}
+.reko-account>nav{margin:24px 0}
+.reko-account .crm-panel{margin:24px 0}
+.reko-account input,.reko-account select,.reko-account textarea{color-scheme:light}
+.reko-vani summary{cursor:pointer;font-weight:700;color:var(--ui-primary);padding:8px 0}
+.reko-vani figure{margin:24px 0}
+.reko-vani-plan{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));border:4px solid var(--ui-line);max-width:620px;background:var(--ui-surface);gap:5px;padding:5px}
+.reko-vani-plan>div{display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;border:1px solid var(--ui-line);padding:16px 8px;min-height:75px;gap:8px}
+.reko-vani-plan .main-room{min-height:135px;background:var(--ui-surface)}
+.reko-vani-plan strong{font-size:24px;color:var(--ui-primary)}
+.reko-vani figcaption{padding:14px 0}
+.reko-account .crm-table-wrap{max-width:100%;overflow-x:auto}
+.reko-account .crm-table-wrap table{width:100%;border-collapse:collapse}
+.reko-account th,.reko-account td{text-align:left;padding:14px;border-bottom:1px solid var(--ui-line)}
+.reko-account td small{display:block;color:var(--ui-muted)}
+@media(max-width:540px){.reko-vani-plan>div{padding:10px 3px;font-size:.875rem}.reko-vani-plan strong{font-size:20px}.reko-account{padding:20px 16px}.reko-account .crm-form-grid{grid-template-columns:1fr}}

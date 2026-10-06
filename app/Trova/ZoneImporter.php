@@ -156,7 +156,14 @@ final class ZoneImporter
                 $imported++;
             }
 
-            $dryRun || $imported === 0 ? DB::rollBack() : DB::commit();
+            // Una sostituzione parziale può cancellare un archivio valido e lasciarne uno incompleto.
+            // Se anche una sola geometria/riga è errata, manteniamo integralmente le zone precedenti.
+            $hasErrors = collect($issues)->contains(fn (ImportIssue $issue) => $issue->severity === 'error');
+            $dryRun || $imported === 0 || ($replace && $hasErrors) ? DB::rollBack() : DB::commit();
+            if (! $dryRun && $replace && $hasErrors) {
+                $imported = 0;
+                $issues[] = $this->issue('error', 'replacement-not-applied', 'Sostituzione annullata: correggi tutte le righe non valide e ripeti il controllo.', 0, []);
+            }
         } catch (\Throwable $e) {
             DB::rollBack();
             throw $e;

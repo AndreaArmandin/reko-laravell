@@ -8,51 +8,15 @@ use Illuminate\Support\Facades\Schema;
 return new class extends Migration
 {
     /**
-     * Agency CRM contacts, observations, recorded ownership, and census proposals.
+     * Agency observations, recorded ownership, and census proposals.
+     * contacts, contact_channels and client_profiles are active since
+     * database/migrations/2026_10_08_000060_create_contact_tables.php (rewritten, composite FKs).
+     * DRAFT: when activated, rewrite as a new dated migration with agency_id RESTRICT and
+     * composite (agency_id, contact_id) FKs; do not move this file.
      */
     public function up(): void
     {
         Postgis::assertPgsql();
-
-        Schema::create('contacts', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('agency_id')->constrained()->cascadeOnDelete();
-            $table->string('display_name');
-            $table->string('given_name')->nullable();
-            $table->string('family_name')->nullable();
-            $table->string('tax_code')->nullable();
-            $table->string('vat_number')->nullable();
-            $table->text('notes')->nullable();
-            $table->timestamps();
-        });
-
-        Postgis::uniqueIndex(
-            'contacts_agency_tax_code_unique',
-            'contacts',
-            'agency_id, tax_code',
-            'tax_code IS NOT NULL',
-        );
-
-        Schema::create('contact_channels', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('agency_id')->constrained()->cascadeOnDelete();
-            $table->foreignId('contact_id')->constrained()->cascadeOnDelete();
-            $table->string('kind');
-            $table->string('value');
-            $table->boolean('is_primary')->default(false);
-            $table->timestamps();
-        });
-
-        Schema::create('client_profiles', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('agency_id')->constrained()->cascadeOnDelete();
-            $table->foreignId('contact_id')->unique()->constrained()->cascadeOnDelete();
-            $table->string('kind')->nullable();
-            $table->decimal('budget_min', 14, 2)->nullable();
-            $table->decimal('budget_max', 14, 2)->nullable();
-            $table->text('notes')->nullable();
-            $table->timestamps();
-        });
 
         Schema::create('agency_unit_observations', function (Blueprint $table) {
             $table->id();
@@ -118,8 +82,5 @@ return new class extends Migration
         Schema::dropIfExists('census_proposals');
         Schema::dropIfExists('ownerships');
         Schema::dropIfExists('agency_unit_observations');
-        Schema::dropIfExists('client_profiles');
-        Schema::dropIfExists('contact_channels');
-        Schema::dropIfExists('contacts');
     }
 };

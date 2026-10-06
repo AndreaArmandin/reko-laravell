@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\BelongsToAgency;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -11,6 +12,8 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  */
 class Acquisition extends Model
 {
+    use BelongsToAgency;
+
     protected $table = 'acquisitions';
 
     protected $guarded = ['id'];
@@ -23,6 +26,7 @@ class Acquisition extends Model
         return [
             'opened_on' => 'date',
             'closed_on' => 'date',
+            'details' => 'array',
         ];
     }
 

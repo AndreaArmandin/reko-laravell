@@ -2,7 +2,10 @@
 
 use App\Models\Agency;
 use App\Models\User;
+use App\Gestionale\DbGuard;
 use Flux\Flux;
+use Illuminate\Database\QueryException;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Livewire\Attributes\Computed;
@@ -86,8 +89,8 @@ new #[Title('Modifica agenzia')] class extends Component {
 
         $user = User::query()->where('email', $this->memberEmail)->firstOrFail();
 
-        // Se è già membro, aggiorna solo il ruolo
-        $this->agency->memberships()->updateOrCreate(['user_id' => $user->id], ['role' => $this->memberRole]);
+        // Se è già membro aggiorna il ruolo; se era disattivato lo riattiva
+        $this->agency->memberships()->updateOrCreate(['user_id' => $user->id], ['role' => $this->memberRole, 'deactivated_at' => null]);
 
         $this->reset('memberEmail');
         unset($this->memberships);
@@ -108,13 +111,39 @@ new #[Title('Modifica agenzia')] class extends Component {
         unset($this->memberships);
     }
 
-    // Rimuove un membro dall'agenzia
+    // Rimuove un membro dall'agenzia. Se ha schede del gestionale assegnate (FK RESTRICT) va disattivato.
     public function removeMember(int $membershipId): void
     {
-        $this->agency->memberships()->findOrFail($membershipId)->delete();
+        $membership = $this->agency->memberships()->findOrFail($membershipId);
+
+        $blocked = 'L’utente ha schede assegnate nel gestionale: disattivalo invece di rimuoverlo.';
+        if (DbGuard::blockingReferences($membership) !== []) {
+            Flux::toast(variant: 'danger', text: $blocked);
+            return;
+        }
+
+        try {
+            DB::transaction(fn () => $membership->delete());
+        } catch (QueryException $e) {
+            if (! DbGuard::isForeignKeyBlock($e)) {
+                throw $e;
+            }
+            Flux::toast(variant: 'danger', text: $blocked);
+            return;
+        }
 
         unset($this->memberships);
         Flux::toast(variant: 'success', text: 'Utente scollegato.');
+    }
+
+    // Disattiva o riattiva un membro: resta referente delle sue schede ma non accede al gestionale
+    public function toggleMember(int $membershipId): void
+    {
+        $membership = $this->agency->memberships()->findOrFail($membershipId);
+        $membership->update(['deactivated_at' => $membership->isActive() ? now() : null]);
+
+        unset($this->memberships);
+        Flux::toast(variant: 'success', text: $membership->isActive() ? 'Utente riattivato.' : 'Utente disattivato.');
     }
 }; ?>
 
@@ -157,7 +186,12 @@ new #[Title('Modifica agenzia')] class extends Component {
             <flux:table.rows>
                 @forelse ($this->memberships as $membership)
                     <flux:table.row :key="$membership->id">
-                        <flux:table.cell>{{ $membership->user->name }}</flux:table.cell>
+                        <flux:table.cell>
+                            {{ $membership->user->name }}
+                            @unless ($membership->isActive())
+                                <flux:badge size="sm" color="zinc">Disattivato</flux:badge>
+                            @endunless
+                        </flux:table.cell>
                         <flux:table.cell>{{ $membership->user->email }}</flux:table.cell>
                         <flux:table.cell>
                             <select class="rounded border p-1 text-sm"
@@ -169,6 +203,9 @@ new #[Title('Modifica agenzia')] class extends Component {
                             </select>
                         </flux:table.cell>
                         <flux:table.cell class="text-right">
+                            <flux:button size="sm" wire:click="toggleMember({{ $membership->id }})">
+                                {{ $membership->isActive() ? 'Disattiva' : 'Riattiva' }}
+                            </flux:button>
                             <flux:button size="sm" variant="danger"
                                 wire:click="removeMember({{ $membership->id }})"
                                 wire:confirm="Scollegare {{ $membership->user->name }} da questa agenzia?">

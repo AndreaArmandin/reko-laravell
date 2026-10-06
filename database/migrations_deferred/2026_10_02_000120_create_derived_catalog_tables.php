@@ -8,23 +8,16 @@ use Illuminate\Support\Facades\Schema;
 return new class extends Migration
 {
     /**
-     * Derived territorial, address, housing, and OMI tables.
+     * Derived territorial and address tables (draft).
+     * geographic_zones, omi_zones and omi_quotations are active with another schema in
+     * database/migrations/2026_10_06_000020_create_trova_reference_tables.php; housing data lives
+     * in parcel_housing_contexts (2026_10_05_000020). They were removed from here so this draft
+     * can never collide with them.
      * Schema stubs: columns the later imports will fill, with nullable measures and geometries.
      */
     public function up(): void
     {
         Postgis::assertPgsql();
-
-        Schema::create('housing_contexts', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('municipality_id')->constrained()->cascadeOnDelete();
-            $table->foreignId('catalog_release_id')->nullable()->constrained()->nullOnDelete();
-            $table->string('name')->nullable();
-            $table->timestamps();
-        });
-
-        Postgis::addGeometry('housing_contexts', 'boundary', 'MultiPolygon');
-        Postgis::gist('housing_contexts', 'boundary');
 
         Schema::create('functional_lots', function (Blueprint $table) {
             $table->id();
@@ -38,18 +31,6 @@ return new class extends Migration
 
         Postgis::addGeometry('functional_lots', 'boundary', 'MultiPolygon');
         Postgis::gist('functional_lots', 'boundary');
-
-        Schema::create('geographic_zones', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('municipality_id')->nullable()->constrained()->nullOnDelete();
-            $table->string('kind');
-            $table->string('name');
-            $table->string('code')->nullable();
-            $table->timestamps();
-        });
-
-        Postgis::addGeometry('geographic_zones', 'boundary', 'MultiPolygon');
-        Postgis::gist('geographic_zones', 'boundary');
 
         Schema::create('address_points', function (Blueprint $table) {
             $table->id();
@@ -82,35 +63,6 @@ return new class extends Migration
 
         Postgis::addGeometry('territorial_localities', 'location', 'Point');
         Postgis::gist('territorial_localities', 'location');
-
-        Schema::create('omi_zones', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('municipality_id')->constrained()->cascadeOnDelete();
-            $table->string('code');
-            $table->string('name')->nullable();
-            $table->timestamps();
-
-            $table->unique(['municipality_id', 'code']);
-        });
-
-        Postgis::addGeometry('omi_zones', 'boundary', 'MultiPolygon');
-        Postgis::gist('omi_zones', 'boundary');
-
-        Schema::create('omi_quotations', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('omi_zone_id')->constrained()->cascadeOnDelete();
-            $table->string('period_label')->nullable();
-            $table->string('property_type')->nullable();
-            $table->decimal('min_value', 14, 2)->nullable();
-            $table->decimal('max_value', 14, 2)->nullable();
-            $table->timestamps();
-        });
-
-        Postgis::uniqueIndex(
-            'omi_quotations_natural_key_unique',
-            'omi_quotations',
-            "omi_zone_id, (COALESCE(period_label, '')), (COALESCE(property_type, ''))",
-        );
     }
 
     /**
@@ -118,13 +70,9 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::dropIfExists('omi_quotations');
-        Schema::dropIfExists('omi_zones');
         Schema::dropIfExists('territorial_localities');
         Schema::dropIfExists('business_locations');
         Schema::dropIfExists('address_points');
-        Schema::dropIfExists('geographic_zones');
         Schema::dropIfExists('functional_lots');
-        Schema::dropIfExists('housing_contexts');
     }
 };

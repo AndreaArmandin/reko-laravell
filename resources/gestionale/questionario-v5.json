@@ -1,0 +1,1497 @@
+{
+ "_source": "Domande di default del gestionale (lib/crm/questions.ts defaultQuestions, PROFILE_VERSION 5), schema TS esatto. Unica differenza voluta: le 9 zone milanesi del prototipo sono tolte, la lista zone si configura per agenzia (vuota di default).",
+ "profileVersion": 5,
+ "questions": [
+  {
+   "id": "operation",
+   "text": "Vuoi acquistare o affittare?",
+   "type": "single",
+   "paths": "all",
+   "explanation": "",
+   "order": 1,
+   "skippable": false,
+   "active": true,
+   "weight": 1,
+   "classification": "Indispensabile",
+   "field": "operation",
+   "bucket": "type",
+   "operator": "equal",
+   "options": [
+    "Acquisto",
+    "Locazione"
+   ],
+   "collection": "guided"
+  },
+  {
+   "id": "purpose",
+   "text": "Per quale finalità stai cercando?",
+   "type": "single",
+   "paths": "all",
+   "explanation": "",
+   "order": 2,
+   "skippable": true,
+   "active": true,
+   "weight": 1,
+   "classification": "Preferibile",
+   "field": "purpose",
+   "bucket": "type",
+   "operator": "equal",
+   "options": [
+    "Abitazione principale",
+    "Seconda casa",
+    "Investimento",
+    "Attività commerciale",
+    "Ufficio professionale",
+    "Attività ricettiva",
+    "Uso industriale o artigianale",
+    "Terreno",
+    "Box o posto auto"
+   ],
+   "collection": "guided"
+  },
+  {
+   "id": "typology",
+   "text": "Quali tipi di immobile prenderesti in considerazione?",
+   "type": "multi",
+   "paths": "all",
+   "explanation": "Puoi scegliere più risposte.",
+   "order": 3,
+   "skippable": true,
+   "active": true,
+   "weight": 1,
+   "classification": "Preferibile",
+   "field": "typology",
+   "bucket": "type",
+   "operator": "equal",
+   "collection": "guided"
+  },
+  {
+   "id": "zones",
+   "text": "In quale zona vorresti cercare?",
+   "type": "multi",
+   "paths": "all",
+   "explanation": "",
+   "order": 4,
+   "skippable": true,
+   "active": true,
+   "weight": 1,
+   "classification": "Preferibile",
+   "field": "zones",
+   "bucket": "zone",
+   "operator": "equal",
+   "options": [],
+   "collection": "guided"
+  },
+  {
+   "id": "budget",
+   "text": "In quale fascia di budget vuoi cercare?",
+   "type": "range",
+   "paths": "all",
+   "explanation": "Indica un minimo, un massimo o entrambi, in euro. Per l’affitto considera il canone mensile, senza spese.",
+   "order": 5,
+   "skippable": true,
+   "active": true,
+   "weight": 1,
+   "classification": "Preferibile",
+   "field": "price",
+   "bucket": "budget",
+   "operator": "range",
+   "collection": "guided"
+  },
+  {
+   "id": "availableBy",
+   "text": "Entro quando vorresti trovare l’immobile?",
+   "type": "date",
+   "paths": "all",
+   "explanation": "",
+   "order": 9,
+   "skippable": true,
+   "active": true,
+   "weight": 1,
+   "classification": "Preferibile",
+   "field": "availableFrom",
+   "bucket": "availability",
+   "operator": "date",
+   "collection": "guided"
+  },
+  {
+   "id": "nearPoint",
+   "text": "Vuoi restare vicino a un punto preciso?",
+   "type": "zone",
+   "paths": "all",
+   "explanation": "La distanza è indicativa, in linea d’aria.",
+   "order": 22,
+   "skippable": true,
+   "active": true,
+   "weight": 1,
+   "classification": "Preferibile",
+   "field": "coordinates",
+   "bucket": "zone",
+   "operator": "distance",
+   "collection": "guided"
+  },
+  {
+   "id": "area",
+   "text": "Quale superficie ti sarebbe utile?",
+   "type": "range",
+   "paths": "all",
+   "explanation": "Superficie commerciale indicativa, in m².",
+   "order": 6,
+   "skippable": true,
+   "active": true,
+   "weight": 1,
+   "classification": "Preferibile",
+   "field": "area",
+   "bucket": "surface",
+   "operator": "range",
+   "collection": "guided"
+  },
+  {
+   "id": "fees",
+   "text": "Qual è il limite mensile per le spese?",
+   "type": "amount",
+   "paths": "all",
+   "explanation": "",
+   "order": 108,
+   "skippable": true,
+   "active": true,
+   "weight": 1,
+   "classification": "Preferibile",
+   "field": "fees",
+   "bucket": "budget",
+   "operator": "maximum",
+   "collection": "manual"
+  },
+  {
+   "id": "rooms",
+   "text": "Di quanti locali hai bisogno?",
+   "type": "amount",
+   "paths": [
+    "residential"
+   ],
+   "explanation": "",
+   "order": 109,
+   "skippable": true,
+   "active": true,
+   "weight": 1,
+   "classification": "Preferibile",
+   "field": "rooms",
+   "bucket": "rooms",
+   "operator": "minimum",
+   "collection": "manual"
+  },
+  {
+   "id": "bedrooms",
+   "text": "Quante camere ti servono?",
+   "type": "range",
+   "paths": [
+    "residential"
+   ],
+   "explanation": "Indica un minimo e, se utile, un massimo.",
+   "order": 7,
+   "skippable": true,
+   "active": true,
+   "weight": 1,
+   "classification": "Preferibile",
+   "field": "bedrooms",
+   "bucket": "rooms",
+   "operator": "range",
+   "collection": "guided"
+  },
+  {
+   "id": "bathrooms",
+   "text": "Quanti bagni preferisci?",
+   "type": "amount",
+   "paths": [
+    "residential",
+    "commercial"
+   ],
+   "explanation": "",
+   "order": 111,
+   "skippable": true,
+   "active": true,
+   "weight": 1,
+   "classification": "Preferibile",
+   "field": "bathrooms",
+   "bucket": "rooms",
+   "operator": "minimum",
+   "collection": "manual"
+  },
+  {
+   "id": "floor",
+   "text": "Quali piani prenderesti in considerazione?",
+   "type": "range",
+   "paths": [
+    "residential"
+   ],
+   "explanation": "",
+   "order": 112,
+   "skippable": true,
+   "active": true,
+   "weight": 1,
+   "classification": "Preferibile",
+   "field": "floor",
+   "bucket": "preferred",
+   "operator": "range",
+   "collection": "manual"
+  },
+  {
+   "id": "elevator",
+   "text": "Ascensore richiesto",
+   "type": "boolean",
+   "paths": [
+    "residential"
+   ],
+   "explanation": "L’ascensore non garantisce da solo un percorso senza barriere.",
+   "order": 113,
+   "skippable": true,
+   "active": true,
+   "weight": 1,
+   "classification": "Preferibile",
+   "field": "elevator",
+   "bucket": "preferred",
+   "operator": "equal",
+   "collection": "manual"
+  },
+  {
+   "id": "balcony",
+   "text": "Vorresti un balcone?",
+   "type": "boolean",
+   "paths": [
+    "residential"
+   ],
+   "explanation": "",
+   "order": 114,
+   "skippable": true,
+   "active": true,
+   "weight": 1,
+   "classification": "Preferibile",
+   "field": "balcony",
+   "bucket": "preferred",
+   "operator": "equal",
+   "collection": "manual"
+  },
+  {
+   "id": "terrace",
+   "text": "Ti serve un terrazzo?",
+   "type": "boolean",
+   "paths": [
+    "residential"
+   ],
+   "explanation": "",
+   "order": 115,
+   "skippable": true,
+   "active": true,
+   "weight": 1,
+   "classification": "Preferibile",
+   "field": "terrace",
+   "bucket": "preferred",
+   "operator": "equal",
+   "collection": "manual"
+  },
+  {
+   "id": "garden",
+   "text": "Vorresti un giardino?",
+   "type": "boolean",
+   "paths": [
+    "residential"
+   ],
+   "explanation": "",
+   "order": 116,
+   "skippable": true,
+   "active": true,
+   "weight": 1,
+   "classification": "Preferibile",
+   "field": "garden",
+   "bucket": "preferred",
+   "operator": "equal",
+   "collection": "manual"
+  },
+  {
+   "id": "garage",
+   "text": "Hai bisogno di un garage o box?",
+   "type": "boolean",
+   "paths": [
+    "residential"
+   ],
+   "explanation": "",
+   "order": 117,
+   "skippable": true,
+   "active": true,
+   "weight": 1,
+   "classification": "Preferibile",
+   "field": "garage",
+   "bucket": "preferred",
+   "operator": "equal",
+   "collection": "manual"
+  },
+  {
+   "id": "parking",
+   "text": "È importante avere un posto auto?",
+   "type": "boolean",
+   "paths": [
+    "residential",
+    "commercial"
+   ],
+   "explanation": "",
+   "order": 118,
+   "skippable": true,
+   "active": true,
+   "weight": 1,
+   "classification": "Preferibile",
+   "field": "parking",
+   "bucket": "preferred",
+   "operator": "equal",
+   "collection": "manual"
+  },
+  {
+   "id": "cellar",
+   "text": "Ti serve una cantina?",
+   "type": "boolean",
+   "paths": [
+    "residential"
+   ],
+   "explanation": "",
+   "order": 119,
+   "skippable": true,
+   "active": true,
+   "weight": 1,
+   "classification": "Preferibile",
+   "field": "cellar",
+   "bucket": "preferred",
+   "operator": "equal",
+   "collection": "manual"
+  },
+  {
+   "id": "furnished",
+   "text": "Preferisci un immobile arredato?",
+   "type": "boolean",
+   "paths": [
+    "residential"
+   ],
+   "explanation": "",
+   "order": 120,
+   "skippable": true,
+   "active": true,
+   "weight": 1,
+   "classification": "Preferibile",
+   "field": "furnished",
+   "bucket": "preferred",
+   "operator": "equal",
+   "collection": "manual"
+  },
+  {
+   "id": "condition",
+   "text": "In quale stato vorresti trovare l’immobile?",
+   "type": "multi",
+   "paths": [
+    "residential",
+    "commercial",
+    "investment"
+   ],
+   "explanation": "",
+   "order": 8,
+   "skippable": true,
+   "active": true,
+   "weight": 1,
+   "classification": "Preferibile",
+   "field": "condition",
+   "bucket": "preferred",
+   "operator": "equal",
+   "options": [
+    "Nuovo",
+    "Ottimo",
+    "Buono",
+    "Da ristrutturare"
+   ],
+   "collection": "guided"
+  },
+  {
+   "id": "works",
+   "text": "Sei disponibile a fare lavori?",
+   "type": "boolean",
+   "paths": [
+    "residential",
+    "commercial",
+    "investment"
+   ],
+   "explanation": "Se rispondi no, un immobile da ristrutturare verrà segnalato.",
+   "order": 122,
+   "skippable": true,
+   "active": true,
+   "weight": 1,
+   "classification": "Preferibile",
+   "field": "works",
+   "bucket": "preferred",
+   "operator": "equal",
+   "collection": "manual"
+  },
+  {
+   "id": "energy",
+   "text": "Ci sono classi energetiche che preferisci?",
+   "type": "multi",
+   "paths": [
+    "residential"
+   ],
+   "explanation": "",
+   "order": 123,
+   "skippable": true,
+   "active": true,
+   "weight": 1,
+   "classification": "Preferibile",
+   "field": "energy",
+   "bucket": "preferred",
+   "operator": "equal",
+   "options": [
+    "A",
+    "B",
+    "C",
+    "D",
+    "E",
+    "F",
+    "G"
+   ],
+   "collection": "manual"
+  },
+  {
+   "id": "accessible",
+   "text": "Percorso senza barriere richiesto",
+   "type": "boolean",
+   "paths": [
+    "residential",
+    "commercial"
+   ],
+   "explanation": "Da verificare separatamente dall’ascensore: ingresso, gradini e accesso agli spazi.",
+   "order": 124,
+   "skippable": true,
+   "active": true,
+   "weight": 1,
+   "classification": "Preferibile",
+   "field": "accessible",
+   "bucket": "preferred",
+   "operator": "equal",
+   "collection": "manual"
+  },
+  {
+   "id": "pets",
+   "text": "L’immobile deve consentire animali domestici?",
+   "type": "boolean",
+   "paths": [
+    "residential"
+   ],
+   "explanation": "",
+   "order": 125,
+   "skippable": true,
+   "active": true,
+   "weight": 1,
+   "classification": "Preferibile",
+   "field": "pets",
+   "bucket": "preferred",
+   "operator": "equal",
+   "condition": {
+    "field": "operation",
+    "values": [
+     "Locazione"
+    ]
+   },
+   "collection": "manual"
+  },
+  {
+   "id": "services",
+   "text": "Quali servizi vorresti vicini?",
+   "type": "multi",
+   "paths": [
+    "residential"
+   ],
+   "explanation": "",
+   "order": 126,
+   "skippable": true,
+   "active": true,
+   "weight": 1,
+   "classification": "Preferibile",
+   "field": "services",
+   "bucket": "preferred",
+   "operator": "equal",
+   "options": [
+    "Trasporti",
+    "Scuole",
+    "Negozi",
+    "Parco",
+    "Servizi sanitari"
+   ],
+   "collection": "manual"
+  },
+  {
+   "id": "heating",
+   "text": "Hai preferenze sul riscaldamento?",
+   "type": "multi",
+   "paths": [
+    "residential"
+   ],
+   "explanation": "",
+   "order": 127,
+   "skippable": true,
+   "active": true,
+   "weight": 1,
+   "classification": "Preferibile",
+   "field": "heating",
+   "bucket": "preferred",
+   "operator": "equal",
+   "options": [
+    "Autonomo",
+    "Centralizzato",
+    "Pompa di calore"
+   ],
+   "collection": "manual"
+  },
+  {
+   "id": "airConditioning",
+   "text": "Vorresti la climatizzazione?",
+   "type": "boolean",
+   "paths": [
+    "residential"
+   ],
+   "explanation": "",
+   "order": 128,
+   "skippable": true,
+   "active": true,
+   "weight": 1,
+   "classification": "Preferibile",
+   "field": "airConditioning",
+   "bucket": "preferred",
+   "operator": "equal",
+   "collection": "manual"
+  },
+  {
+   "id": "visitTimes",
+   "text": "Quando sei disponibile per le visite?",
+   "type": "multi",
+   "paths": "all",
+   "explanation": "",
+   "order": 129,
+   "skippable": true,
+   "active": true,
+   "weight": 1,
+   "classification": "Preferibile",
+   "options": [
+    "Mattina",
+    "Pausa pranzo",
+    "Pomeriggio",
+    "Sera",
+    "Sabato"
+   ],
+   "collection": "manual"
+  },
+  {
+   "id": "essentialNotes",
+   "text": "C’è qualcosa di indispensabile da aggiungere?",
+   "type": "text",
+   "paths": "all",
+   "explanation": "Questa nota aiuta il referente. I requisiti strutturati si impostano nelle singole risposte.",
+   "order": 130,
+   "skippable": true,
+   "active": true,
+   "weight": 1,
+   "classification": "Preferibile",
+   "collection": "manual"
+  },
+  {
+   "id": "excludeNotes",
+   "text": "Che cosa non prenderesti in considerazione?",
+   "type": "text",
+   "paths": "all",
+   "explanation": "",
+   "order": 131,
+   "skippable": true,
+   "active": true,
+   "weight": 1,
+   "classification": "Preferibile",
+   "collection": "manual"
+  },
+  {
+   "id": "notes",
+   "text": "Ci sono cose importanti che non mi hai ancora detto?",
+   "type": "text",
+   "paths": "all",
+   "explanation": "Questo è lo spazio per le esigenze particolari. Aggiungi note e tag, anche creati da te.",
+   "order": 27,
+   "skippable": true,
+   "active": true,
+   "weight": 1,
+   "classification": "Preferibile",
+   "collection": "guided"
+  },
+  {
+   "id": "tags",
+   "text": "Tag della richiesta",
+   "type": "multi",
+   "paths": "all",
+   "explanation": "Tag liberi confrontati con caratteristiche, tag e descrizione della scheda immobile.",
+   "order": 133,
+   "skippable": true,
+   "active": true,
+   "weight": 1,
+   "classification": "Preferibile",
+   "field": "tags",
+   "bucket": "preferred",
+   "operator": "equal",
+   "collection": "manual"
+  },
+  {
+   "id": "currentHome",
+   "text": "Attualmente dove vivi?",
+   "type": "single",
+   "paths": [
+    "residential"
+   ],
+   "explanation": "",
+   "order": 10,
+   "skippable": true,
+   "active": true,
+   "weight": 1,
+   "classification": "Preferibile",
+   "options": [
+    "In affitto",
+    "In una casa di proprietà",
+    "Altra situazione"
+   ],
+   "sensitive": true,
+   "collection": "guided"
+  },
+  {
+   "id": "sellCurrentHome",
+   "text": "Per acquistare devi prima vendere casa?",
+   "type": "single",
+   "paths": [
+    "residential"
+   ],
+   "explanation": "",
+   "order": 135,
+   "skippable": true,
+   "active": true,
+   "weight": 1,
+   "classification": "Preferibile",
+   "options": [
+    "Sì, devo ancora venderla",
+    "La vendita è già in corso",
+    "No, le due operazioni sono indipendenti"
+   ],
+   "condition": {
+    "field": "currentHome",
+    "values": [
+     "In una casa di proprietà"
+    ]
+   },
+   "sensitive": true,
+   "collection": "manual"
+  },
+  {
+   "id": "capital",
+   "text": "Quale capitale pensi di utilizzare?",
+   "type": "amount",
+   "paths": [
+    "residential"
+   ],
+   "explanation": "",
+   "order": 136,
+   "skippable": true,
+   "active": true,
+   "weight": 1,
+   "classification": "Preferibile",
+   "condition": {
+    "field": "operation",
+    "values": [
+     "Acquisto"
+    ]
+   },
+   "sensitive": true,
+   "collection": "archived"
+  },
+  {
+   "id": "mortgage",
+   "text": "Per l’acquisto prevedi un mutuo?",
+   "type": "boolean",
+   "paths": [
+    "residential"
+   ],
+   "explanation": "",
+   "order": 11,
+   "skippable": true,
+   "active": true,
+   "weight": 1,
+   "classification": "Preferibile",
+   "condition": {
+    "field": "operation",
+    "values": [
+     "Acquisto"
+    ]
+   },
+   "sensitive": true,
+   "collection": "guided"
+  },
+  {
+   "id": "mortgageState",
+   "text": "Hai già parlato con una banca o un consulente del mutuo?",
+   "type": "single",
+   "paths": [
+    "residential"
+   ],
+   "explanation": "",
+   "order": 138,
+   "skippable": true,
+   "active": true,
+   "weight": 1,
+   "classification": "Preferibile",
+   "options": [
+    "Non ancora",
+    "Valutazione in corso",
+    "Sì, ho già un’indicazione dell’importo"
+   ],
+   "condition": {
+    "field": "mortgage",
+    "values": [
+     true
+    ]
+   },
+   "sensitive": true,
+   "collection": "manual"
+  },
+  {
+   "id": "mortgageEstimate",
+   "text": "Quale mutuo ti è stato indicato?",
+   "type": "financing",
+   "paths": [
+    "residential"
+   ],
+   "explanation": "Indica l’importo o la percentuale, solo se già noti. Sono informazioni di pratica, non una conferma di finanziamento.",
+   "order": 139,
+   "skippable": true,
+   "active": true,
+   "weight": 1,
+   "classification": "Preferibile",
+   "condition": {
+    "field": "mortgageState",
+    "values": [
+     "Sì, ho già un’indicazione dell’importo"
+    ]
+   },
+   "sensitive": true,
+   "collection": "manual"
+  },
+  {
+   "id": "financeable",
+   "text": "Hai già un importo indicativamente finanziabile?",
+   "type": "amount",
+   "paths": [
+    "residential"
+   ],
+   "explanation": "",
+   "order": 140,
+   "skippable": true,
+   "active": true,
+   "weight": 1,
+   "classification": "Preferibile",
+   "condition": {
+    "field": "mortgage",
+    "values": [
+     true
+    ]
+   },
+   "sensitive": true,
+   "collection": "archived"
+  },
+  {
+   "id": "occupants",
+   "text": "Quante persone utilizzeranno l’abitazione?",
+   "type": "amount",
+   "paths": [
+    "residential"
+   ],
+   "explanation": "",
+   "order": 141,
+   "skippable": true,
+   "active": true,
+   "weight": 1,
+   "classification": "Preferibile",
+   "condition": {
+    "field": "operation",
+    "values": [
+     "Locazione"
+    ]
+   },
+   "sensitive": true,
+   "collection": "archived"
+  },
+  {
+   "id": "rentalDuration",
+   "text": "Per quanto tempo prevedi di restare?",
+   "type": "single",
+   "paths": [
+    "residential"
+   ],
+   "explanation": "",
+   "order": 26,
+   "skippable": true,
+   "active": true,
+   "weight": 1,
+   "classification": "Preferibile",
+   "options": [
+    "Meno di un anno",
+    "Da 1 a 3 anni",
+    "Più di 3 anni"
+   ],
+   "condition": {
+    "field": "operation",
+    "values": [
+     "Locazione"
+    ]
+   },
+   "collection": "guided"
+  },
+  {
+   "id": "incomeBand",
+   "text": "Vuoi annotare una fascia di reddito documentabile?",
+   "type": "single",
+   "paths": [
+    "residential"
+   ],
+   "explanation": "Facoltativo. Serve solo alla pratica, non al punteggio di compatibilità.",
+   "order": 143,
+   "skippable": true,
+   "active": true,
+   "weight": 1,
+   "classification": "Preferibile",
+   "options": [
+    "Da definire con il referente",
+    "Fino a 2.000 €/mese",
+    "2.000–4.000 €/mese",
+    "Oltre 4.000 €/mese"
+   ],
+   "condition": {
+    "field": "operation",
+    "values": [
+     "Locazione"
+    ]
+   },
+   "sensitive": true,
+   "collection": "archived"
+  },
+  {
+   "id": "workSituation",
+   "text": "Vuoi annotare la situazione lavorativa per la pratica?",
+   "type": "text",
+   "paths": [
+    "residential"
+   ],
+   "explanation": "",
+   "order": 144,
+   "skippable": true,
+   "active": true,
+   "weight": 1,
+   "classification": "Preferibile",
+   "condition": {
+    "field": "operation",
+    "values": [
+     "Locazione"
+    ]
+   },
+   "sensitive": true,
+   "collection": "archived"
+  },
+  {
+   "id": "guarantees",
+   "text": "Quali garanzie vuoi valutare con il referente?",
+   "type": "multi",
+   "paths": [
+    "residential"
+   ],
+   "explanation": "",
+   "order": 145,
+   "skippable": true,
+   "active": true,
+   "weight": 1,
+   "classification": "Preferibile",
+   "options": [
+    "Garante",
+    "Referenze",
+    "Altra documentazione",
+    "Da definire"
+   ],
+   "condition": {
+    "field": "operation",
+    "values": [
+     "Locazione"
+    ]
+   },
+   "sensitive": true,
+   "collection": "archived"
+  },
+  {
+   "id": "activity",
+   "text": "Quale attività vorresti svolgere?",
+   "type": "text",
+   "paths": [
+    "commercial"
+   ],
+   "explanation": "",
+   "order": 12,
+   "skippable": true,
+   "active": true,
+   "weight": 1,
+   "classification": "Preferibile",
+   "field": "activity",
+   "bucket": "preferred",
+   "operator": "equal",
+   "collection": "guided"
+  },
+  {
+   "id": "catchment",
+   "text": "Quale contesto è più adatto all’attività?",
+   "type": "multi",
+   "paths": [
+    "commercial"
+   ],
+   "explanation": "",
+   "order": 13,
+   "skippable": true,
+   "active": true,
+   "weight": 1,
+   "classification": "Preferibile",
+   "field": "catchment",
+   "bucket": "preferred",
+   "operator": "equal",
+   "options": [
+    "Residenziale",
+    "Direzionale",
+    "Commerciale",
+    "Industriale",
+    "Turistico"
+   ],
+   "collection": "guided"
+  },
+  {
+   "id": "visibility",
+   "text": "Quanto conta la visibilità dalla strada?",
+   "type": "single",
+   "paths": [
+    "commercial"
+   ],
+   "explanation": "",
+   "order": 148,
+   "skippable": true,
+   "active": true,
+   "weight": 1,
+   "classification": "Preferibile",
+   "field": "visibility",
+   "bucket": "preferred",
+   "operator": "equal",
+   "options": [
+    "Alta",
+    "Media",
+    "Non determinante"
+   ],
+   "collection": "manual"
+  },
+  {
+   "id": "traffic",
+   "text": "Quale passaggio ti interessa?",
+   "type": "multi",
+   "paths": [
+    "commercial"
+   ],
+   "explanation": "",
+   "order": 149,
+   "skippable": true,
+   "active": true,
+   "weight": 1,
+   "classification": "Preferibile",
+   "field": "traffic",
+   "bucket": "preferred",
+   "operator": "equal",
+   "options": [
+    "Pedonale",
+    "Veicolare"
+   ],
+   "collection": "manual"
+  },
+  {
+   "id": "windows",
+   "text": "Quante vetrine vorresti almeno?",
+   "type": "amount",
+   "paths": [
+    "commercial"
+   ],
+   "explanation": "",
+   "order": 150,
+   "skippable": true,
+   "active": true,
+   "weight": 1,
+   "classification": "Preferibile",
+   "field": "windows",
+   "bucket": "preferred",
+   "operator": "minimum",
+   "collection": "manual"
+  },
+  {
+   "id": "streetEntrance",
+   "text": "Ti serve un ingresso diretto dalla strada?",
+   "type": "boolean",
+   "paths": [
+    "commercial"
+   ],
+   "explanation": "",
+   "order": 151,
+   "skippable": true,
+   "active": true,
+   "weight": 1,
+   "classification": "Preferibile",
+   "field": "streetEntrance",
+   "bucket": "preferred",
+   "operator": "equal",
+   "collection": "manual"
+  },
+  {
+   "id": "loading",
+   "text": "Ti serve accesso per carico e scarico?",
+   "type": "boolean",
+   "paths": [
+    "commercial"
+   ],
+   "explanation": "",
+   "order": 152,
+   "skippable": true,
+   "active": true,
+   "weight": 1,
+   "classification": "Preferibile",
+   "field": "loading",
+   "bucket": "preferred",
+   "operator": "equal",
+   "collection": "manual"
+  },
+  {
+   "id": "height",
+   "text": "Qual è l’altezza interna minima utile?",
+   "type": "amount",
+   "paths": [
+    "commercial"
+   ],
+   "explanation": "Metri interni del locale, distinti dall’altezza del fabbricato da terra.",
+   "order": 153,
+   "skippable": true,
+   "active": true,
+   "weight": 1,
+   "classification": "Preferibile",
+   "field": "height",
+   "bucket": "preferred",
+   "operator": "minimum",
+   "collection": "manual"
+  },
+  {
+   "id": "warehouse",
+   "text": "Ti serve un magazzino?",
+   "type": "boolean",
+   "paths": [
+    "commercial"
+   ],
+   "explanation": "",
+   "order": 154,
+   "skippable": true,
+   "active": true,
+   "weight": 1,
+   "classification": "Preferibile",
+   "field": "warehouse",
+   "bucket": "preferred",
+   "operator": "equal",
+   "collection": "manual"
+  },
+  {
+   "id": "systems",
+   "text": "Quali impianti sono necessari?",
+   "type": "multi",
+   "paths": [
+    "commercial"
+   ],
+   "explanation": "",
+   "order": 14,
+   "skippable": true,
+   "active": true,
+   "weight": 1,
+   "classification": "Preferibile",
+   "field": "systems",
+   "bucket": "preferred",
+   "operator": "equal",
+   "options": [
+    "Trifase",
+    "Ventilazione",
+    "Climatizzazione",
+    "Fibra",
+    "Antincendio"
+   ],
+   "collection": "guided"
+  },
+  {
+   "id": "flue",
+   "text": "Ti serve una canna fumaria?",
+   "type": "boolean",
+   "paths": [
+    "commercial"
+   ],
+   "explanation": "",
+   "order": 156,
+   "skippable": true,
+   "active": true,
+   "weight": 1,
+   "classification": "Preferibile",
+   "field": "flue",
+   "bucket": "preferred",
+   "operator": "equal",
+   "condition": {
+    "field": "activity",
+    "values": [
+     "Ristorazione",
+     "Bar"
+    ]
+   },
+   "collection": "manual"
+  },
+  {
+   "id": "cadastralCategory",
+   "text": "Hai una categoria catastale di riferimento?",
+   "type": "multi",
+   "paths": [
+    "commercial"
+   ],
+   "explanation": "È un criterio informativo: la compatibilità d’uso si approfondisce con il referente.",
+   "order": 157,
+   "skippable": true,
+   "active": true,
+   "weight": 1,
+   "classification": "Preferibile",
+   "field": "cadastralCategory",
+   "bucket": "preferred",
+   "operator": "equal",
+   "options": [
+    "C/1",
+    "C/2",
+    "C/3",
+    "A/10",
+    "D/1",
+    "D/2",
+    "D/6",
+    "D/8"
+   ],
+   "collection": "manual"
+  },
+  {
+   "id": "investmentCapital",
+   "text": "Quale capitale destini all’investimento?",
+   "type": "amount",
+   "paths": [
+    "investment"
+   ],
+   "explanation": "",
+   "order": 158,
+   "skippable": true,
+   "active": true,
+   "weight": 1,
+   "classification": "Preferibile",
+   "sensitive": true,
+   "collection": "archived"
+  },
+  {
+   "id": "investmentFinancing",
+   "text": "Prevedi un finanziamento?",
+   "type": "boolean",
+   "paths": [
+    "investment"
+   ],
+   "explanation": "",
+   "order": 159,
+   "skippable": true,
+   "active": true,
+   "weight": 1,
+   "classification": "Preferibile",
+   "sensitive": true,
+   "collection": "archived"
+  },
+  {
+   "id": "expectedYield",
+   "text": "Hai un rendimento indicativo da valutare?",
+   "type": "range",
+   "paths": [
+    "investment"
+   ],
+   "explanation": "Percentuale annua stimata, non garantita. Il confronto resta indicativo.",
+   "order": 160,
+   "skippable": true,
+   "active": true,
+   "weight": 1,
+   "classification": "Preferibile",
+   "field": "yieldEstimate",
+   "bucket": "preferred",
+   "operator": "range",
+   "collection": "manual"
+  },
+  {
+   "id": "investmentStrategy",
+   "text": "Punti al reddito o alla rivalutazione?",
+   "type": "single",
+   "paths": [
+    "investment"
+   ],
+   "explanation": "",
+   "order": 15,
+   "skippable": true,
+   "active": true,
+   "weight": 1,
+   "classification": "Preferibile",
+   "field": "investmentStrategy",
+   "bucket": "preferred",
+   "operator": "equal",
+   "options": [
+    "Reddito immediato",
+    "Rivalutazione",
+    "Entrambi"
+   ],
+   "collection": "guided"
+  },
+  {
+   "id": "occupancy",
+   "text": "Preferisci un immobile libero o già locato?",
+   "type": "multi",
+   "paths": [
+    "residential",
+    "investment"
+   ],
+   "explanation": "",
+   "order": 17,
+   "skippable": true,
+   "active": true,
+   "weight": 1,
+   "classification": "Preferibile",
+   "field": "occupancy",
+   "bucket": "preferred",
+   "operator": "equal",
+   "options": [
+    "Libero",
+    "Locato",
+    "Occupato dal proprietario"
+   ],
+   "collection": "guided"
+  },
+  {
+   "id": "investmentDuration",
+   "text": "Qual è l’orizzonte dell’investimento?",
+   "type": "single",
+   "paths": [
+    "investment"
+   ],
+   "explanation": "",
+   "order": 16,
+   "skippable": true,
+   "active": true,
+   "weight": 1,
+   "classification": "Preferibile",
+   "options": [
+    "Meno di 3 anni",
+    "3–7 anni",
+    "Oltre 7 anni"
+   ],
+   "collection": "guided"
+  },
+  {
+   "id": "management",
+   "text": "Preferisci gestione diretta o delegata?",
+   "type": "single",
+   "paths": [
+    "investment"
+   ],
+   "explanation": "",
+   "order": 18,
+   "skippable": true,
+   "active": true,
+   "weight": 1,
+   "classification": "Preferibile",
+   "field": "management",
+   "bucket": "preferred",
+   "operator": "equal",
+   "options": [
+    "Diretta",
+    "Delegata",
+    "Entrambe"
+   ],
+   "collection": "guided"
+  },
+  {
+   "id": "exitStrategy",
+   "text": "Hai già una strategia di uscita?",
+   "type": "text",
+   "paths": [
+    "investment"
+   ],
+   "explanation": "",
+   "order": 165,
+   "skippable": true,
+   "active": true,
+   "weight": 1,
+   "classification": "Preferibile",
+   "collection": "manual"
+  },
+  {
+   "id": "riskTolerance",
+   "text": "Quale livello indicativo di rischio vuoi discutere?",
+   "type": "single",
+   "paths": [
+    "investment"
+   ],
+   "explanation": "Annotazione di pratica: non è consulenza finanziaria e non modifica il matching.",
+   "order": 166,
+   "skippable": true,
+   "active": true,
+   "weight": 1,
+   "classification": "Preferibile",
+   "options": [
+    "Contenuto",
+    "Intermedio",
+    "Da valutare con il referente"
+   ],
+   "collection": "archived"
+  },
+  {
+   "id": "landUse",
+   "text": "Quale tipo di terreno cerchi?",
+   "type": "single",
+   "paths": [
+    "land"
+   ],
+   "explanation": "",
+   "order": 167,
+   "skippable": true,
+   "active": true,
+   "weight": 1,
+   "classification": "Preferibile",
+   "field": "landUse",
+   "bucket": "preferred",
+   "operator": "equal",
+   "options": [
+    "Edificabile",
+    "Agricolo"
+   ],
+   "collection": "manual"
+  },
+  {
+   "id": "roadAccess",
+   "text": "Ti serve un accesso carrabile?",
+   "type": "boolean",
+   "paths": [
+    "land",
+    "parking"
+   ],
+   "explanation": "",
+   "order": 20,
+   "skippable": true,
+   "active": true,
+   "weight": 1,
+   "classification": "Preferibile",
+   "field": "roadAccess",
+   "bucket": "preferred",
+   "operator": "equal",
+   "collection": "guided"
+  },
+  {
+   "id": "utilities",
+   "text": "Quali allacci vorresti disponibili?",
+   "type": "multi",
+   "paths": [
+    "land"
+   ],
+   "explanation": "",
+   "order": 21,
+   "skippable": true,
+   "active": true,
+   "weight": 1,
+   "classification": "Preferibile",
+   "field": "utilities",
+   "bucket": "preferred",
+   "operator": "equal",
+   "options": [
+    "Acqua",
+    "Elettricità",
+    "Fognatura"
+   ],
+   "collection": "guided"
+  },
+  {
+   "id": "coveredParking",
+   "text": "Cerchi uno spazio coperto?",
+   "type": "boolean",
+   "paths": [
+    "parking"
+   ],
+   "explanation": "",
+   "order": 24,
+   "skippable": true,
+   "active": true,
+   "weight": 1,
+   "classification": "Preferibile",
+   "field": "coveredParking",
+   "bucket": "preferred",
+   "operator": "equal",
+   "collection": "guided"
+  },
+  {
+   "id": "charging",
+   "text": "Ti serve la predisposizione per ricarica elettrica?",
+   "type": "boolean",
+   "paths": [
+    "parking"
+   ],
+   "explanation": "",
+   "order": 25,
+   "skippable": true,
+   "active": true,
+   "weight": 1,
+   "classification": "Preferibile",
+   "field": "charging",
+   "bucket": "preferred",
+   "operator": "equal",
+   "collection": "guided"
+  },
+  {
+   "id": "landProject",
+   "text": "Che progetto vorresti realizzare sul terreno?",
+   "type": "text",
+   "paths": [
+    "land"
+   ],
+   "explanation": "",
+   "order": 19,
+   "skippable": true,
+   "active": true,
+   "weight": 1,
+   "classification": "Preferibile",
+   "collection": "guided"
+  },
+  {
+   "id": "parkingUse",
+   "text": "Che cosa deve ospitare lo spazio?",
+   "type": "single",
+   "paths": [
+    "parking"
+   ],
+   "explanation": "",
+   "order": 23,
+   "skippable": true,
+   "active": true,
+   "weight": 1,
+   "classification": "Preferibile",
+   "options": [
+    "Un’auto",
+    "Una moto",
+    "Un furgone",
+    "Più veicoli"
+   ],
+   "collection": "guided"
+  }
+ ]
+}

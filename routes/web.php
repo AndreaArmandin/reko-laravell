@@ -29,4 +29,5 @@ Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(fun
 
 });
 
+require __DIR__.'/gestionale.php';
 require __DIR__.'/settings.php';
