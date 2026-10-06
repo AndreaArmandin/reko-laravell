@@ -120,7 +120,7 @@ new #[Layout('layouts::gestionale'), Title('Agenda')] class extends Component {
 }; ?>
 
 <div class="flex flex-col gap-6">
-    <div class="flex flex-wrap items-end justify-between gap-3">
+    <div class="crm-page-head">
         <div><flux:heading size="xl" level="1">Agenda</flux:heading><flux:text class="mt-1">Chiamate, visite e promemoria dell’agenzia.</flux:text></div>
         <flux:select wire:model.live="filter" class="w-44"><flux:select.option value="aperte">Da svolgere</flux:select.option><flux:select.option value="completate">Completate</flux:select.option><flux:select.option value="tutte">Tutte</flux:select.option></flux:select>
     </div>

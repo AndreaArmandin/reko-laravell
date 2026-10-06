@@ -104,7 +104,7 @@ new #[Layout('layouts::gestionale'), Title('Clienti')] class extends Component {
 }; ?>
 
 <div class="flex flex-col gap-6">
-    <div class="flex flex-wrap items-end justify-between gap-4">
+    <div class="crm-page-head">
         <div>
             <flux:heading size="xl" level="1">Clienti</flux:heading>
             <flux:text class="mt-1">Una relazione da seguire, anche quando le esigenze cambiano.</flux:text>

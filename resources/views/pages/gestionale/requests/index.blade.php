@@ -114,7 +114,7 @@ new #[Layout('layouts::gestionale'), Title('Ricerche dei clienti')] class extend
 }; ?>
 
 <div class="flex flex-col gap-6">
-    <div class="flex flex-wrap items-end justify-between gap-4">
+    <div class="crm-page-head">
         <div>
             <flux:text size="sm">Ricerche dei clienti</flux:text>
             <flux:heading size="xl" level="1">Richieste</flux:heading>

@@ -79,7 +79,7 @@ new #[Layout('layouts::gestionale'), Title('Obiettivi')] class extends Component
 }; ?>
 
 <div class="flex flex-col gap-6">
-    <div><flux:heading size="xl" level="1">Obiettivi</flux:heading><flux:text class="mt-1">Ogni obiettivo conserva le proprie versioni e mostra l’avanzamento registrato nel periodo corrente.</flux:text></div>
+    <div class="crm-page-head"><div><flux:heading size="xl" level="1">Obiettivi</flux:heading><flux:text>Ogni obiettivo conserva le proprie versioni e mostra l’avanzamento registrato nel periodo corrente.</flux:text></div></div>
     @if (session('status'))<flux:callout icon="check-circle">{{ session('status') }}</flux:callout>@endif
     @if ($this->membership->isAdmin())<form wire:submit="saveTargets" class="flex flex-col gap-4">@endif
         <div class="grid gap-4 lg:grid-cols-2">

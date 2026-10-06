@@ -46,7 +46,7 @@ new #[Layout('layouts::gestionale'), Title('Impostazioni')] class extends Compon
 }; ?>
 
 <div class="mx-auto flex max-w-4xl flex-col gap-6">
-    <div><flux:heading size="xl" level="1">Impostazioni</flux:heading><flux:text class="mt-1">Regole condivise per abbinare le richieste e gestire i richiami.</flux:text></div>
+    <div class="crm-page-head"><div><flux:heading size="xl" level="1">Impostazioni</flux:heading><flux:text>Regole condivise per abbinare le richieste e gestire i richiami.</flux:text></div></div>
     @if (session('status'))<flux:callout icon="check-circle">{{ session('status') }}</flux:callout>@endif
     <flux:card>
         <form wire:submit="save" class="flex flex-col gap-5">

@@ -66,7 +66,7 @@ new #[Layout('layouts::gestionale'), Title('Archivio catastale')] class extends 
 }; ?>
 
 <div class="flex flex-col gap-5">
-    <div><flux:heading size="xl" level="1">Archivio catastale</flux:heading><flux:text class="mt-1">Unità dei Comuni con un’edizione SISTER pubblicata. L’archivio descrive i dati catastali, non certifica proprietà o destinazione d’uso.</flux:text></div>
+    <div class="crm-page-head"><div><flux:heading size="xl" level="1">Archivio catastale</flux:heading><flux:text>Unità dei Comuni con un’edizione SISTER pubblicata. L’archivio descrive i dati catastali, non certifica proprietà o destinazione d’uso.</flux:text></div></div>
     <flux:card class="grid gap-4 md:grid-cols-3">
         <flux:input wire:model.live.debounce.300ms="search" label="Cerca Comune, indirizzo, foglio, particella o subalterno" />
         <flux:select wire:model.live="municipalityId" label="Comune"><flux:select.option value="">Tutti i Comuni disponibili</flux:select.option>@foreach ($this->municipalities as $municipality)<flux:select.option :value="$municipality->id">{{ $municipality->name }} ({{ $municipality->cadastral_code }})</flux:select.option>@endforeach</flux:select>

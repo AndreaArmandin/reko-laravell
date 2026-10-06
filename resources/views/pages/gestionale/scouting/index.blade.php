@@ -82,7 +82,7 @@ new #[Layout('layouts::gestionale'), Title('Mappa e zone')] class extends Compon
 }; ?>
 
 <div class="flex flex-col gap-6">
-    <div><flux:heading size="xl" level="1">Mappa e zone</flux:heading><flux:text class="mt-1">Assegna il territorio agli operatori. Le zone usano i confini comunali presenti nel catalogo.</flux:text></div>
+    <div class="crm-page-head"><div><flux:heading size="xl" level="1">Mappa e zone</flux:heading><flux:text>Assegna il territorio agli operatori. Le zone usano i confini comunali presenti nel catalogo.</flux:text></div></div>
     @if (session('status'))<flux:callout icon="check-circle">{{ session('status') }}</flux:callout>@endif
     @if ($this->membership->isAdmin())
         <flux:card>

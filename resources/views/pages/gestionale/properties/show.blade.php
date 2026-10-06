@@ -35,7 +35,7 @@ new #[Layout('layouts::gestionale')] class extends Component {
 }; ?>
 
 <div class="flex flex-col gap-6">
-    <div class="flex flex-wrap items-end justify-between gap-4">
+    <div class="crm-page-head">
         <div>
             <flux:link :href="route('gestionale.properties.index')" wire:navigate>← Portafoglio</flux:link>
             <flux:heading size="xl" level="1" class="mt-2">{{ $property->title }}</flux:heading>

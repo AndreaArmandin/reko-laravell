@@ -23,6 +23,9 @@ export default defineConfig({
         tailwindcss(),
     ]),
     server: {
+        // Laravel is served at 127.0.0.1:8000. Keep Vite on the same loopback
+        // family so the browser can load HMR CSS without crossing to ::1.
+        host: '127.0.0.1',
         cors: true,
         watch: {
             ignored: [

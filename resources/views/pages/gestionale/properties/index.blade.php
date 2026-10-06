@@ -63,7 +63,7 @@ new #[Layout('layouts::gestionale'), Title('Immobili a portafoglio')] class exte
 }; ?>
 
 <div class="flex flex-col gap-6">
-    <div class="flex flex-wrap items-end justify-between gap-4">
+    <div class="crm-page-head">
         <div>
             <flux:text size="sm">Immobili</flux:text>
             <flux:heading size="xl" level="1">Portafoglio</flux:heading>
