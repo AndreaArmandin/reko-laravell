@@ -71,9 +71,18 @@ new #[Layout('layouts::gestionale'), Title('Oggi')] class extends Component {
 }; ?>
 
 <div class="flex flex-col gap-6">
-    <div>
-        <flux:heading size="xl" level="1">Oggi</flux:heading>
-        <flux:text class="mt-1">Buongiorno {{ auth()->user()->name }}. Ecco da dove ripartire.</flux:text>
+    <div class="crm-page-head">
+        <div>
+            <p class="proto-eyebrow">{{ $this->membership->agency->name }}</p>
+            <flux:heading size="xl" level="1">Il lavoro di oggi</flux:heading>
+            <flux:text>Buongiorno {{ auth()->user()->name }}. Ecco da dove ripartire.</flux:text>
+        </div>
+        @if ($this->stats)
+            <div class="crm-actions">
+                <flux:button variant="primary" icon="plus" :href="route('gestionale.clients.create')" wire:navigate>Nuovo cliente</flux:button>
+                <flux:button icon="clipboard-document-list" :href="route('gestionale.requests.create')" wire:navigate>Nuova richiesta</flux:button>
+            </div>
+        @endif
     </div>
 
     @if ($this->stats)
