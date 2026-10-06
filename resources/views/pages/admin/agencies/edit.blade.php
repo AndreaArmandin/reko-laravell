@@ -9,7 +9,7 @@ use Livewire\Attributes\Computed;
 use Livewire\Attributes\Title;
 use Livewire\Component;
 
-new #[Title('Nuova agenzia')] class extends Component {
+new #[Title('Modifica agenzia')] class extends Component {
     public string $name = '';
     public string $vat_number = '';
 
@@ -20,6 +20,7 @@ new #[Title('Nuova agenzia')] class extends Component {
     // Inizializzo i valori dei campi con quelli dell'agenzia esistente
     public function mount(Agency $agency): void
     {
+        $this->agency = $agency;
         $this->name = $agency->name;
         $this->vat_number = $agency->vat_number ?? '';
     }
@@ -33,6 +34,9 @@ new #[Title('Nuova agenzia')] class extends Component {
     //Aggiorna un'agenzia esistente nel database
     public function update(): void
     {
+        $this->name = trim($this->name);
+        $this->vat_number = trim($this->vat_number);
+
         $this->validate([
             'name' => ['required', 'string', 'max:255'],
             'vat_number' => ['nullable', 'string', 'max:32'],
@@ -41,12 +45,12 @@ new #[Title('Nuova agenzia')] class extends Component {
         // Lo slug è obbligatorio e unico: lo ricaviamo dal nome
         $slug = Str::slug($this->name);
 
-        if ($slug === '' || Agency::query()->where('slug', $slug)->exists()) {
+        if ($slug === '' || Agency::query()->where('slug', $slug)->whereKeyNot($this->agency->getKey())->exists()) {
             $this->addError('name', 'Esiste già un’agenzia con questo nome, oppure il nome non è valido.');
             return;
         }
 
-        $agency = Agency::query()->update([
+        $this->agency->update([
             'name' => $this->name,
             'slug' => $slug,
             'vat_number' => $this->vat_number !== '' ? $this->vat_number : null,
@@ -121,7 +125,7 @@ new #[Title('Nuova agenzia')] class extends Component {
     </div>
 
     {{-- Dati agenzia --}}
-    <form wire:submit="save" class="space-y-4">
+    <form wire:submit="update" class="space-y-4">
         <flux:input wire:model="name" label="Nome" required />
         <flux:input wire:model="vat_number" label="Partita IVA (opzionale)" />
         <flux:button type="submit" variant="primary">Salva</flux:button>

@@ -8,6 +8,8 @@ export default defineConfig({
         laravel({
             input: [
                 'resources/css/app.css',
+                'resources/css/trova.css',
+                'resources/js/trova.js',
                 'resources/js/app.js',
                 'resources/js/passkeys.js',
             ],

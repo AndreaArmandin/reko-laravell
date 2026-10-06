@@ -1,0 +1,29 @@
+.reko-matched-units{list-style:decimal;margin:.75rem 0;padding-left:1.6rem;display:grid;gap:.65rem}.reko-matched-units li{overflow-wrap:anywhere}.reko-matched-units li>span{display:block}.reko-matched-parcel-units{margin:.75rem 0}.reko-matched-parcel-units summary{cursor:pointer;font-weight:700}
+.reko-search-progress{display:flex;align-items:center;flex-wrap:wrap;gap:8px;list-style:none;margin:0;padding:8px 0;font-family:var(--ui-font,inherit);color:#56635b;font-size:14px;flex:0 0 auto}
+.reko-search-progress li{display:flex;align-items:center;gap:8px}.reko-search-progress li+li:before{content:'·';color:#647168}.reko-search-progress li>span,.reko-search-progress button{display:inline-flex;align-items:center;gap:4px;min-height:44px}.reko-search-progress button{border:0;background:transparent;color:inherit;padding:4px;cursor:pointer;text-decoration:underline;text-underline-offset:4px}.reko-search-progress [aria-current=step]{font-weight:750;color:#4d420b}
+.reko-search-loading{padding:24px 16px;min-width:0}.reko-search-loading p{color:#516158;font-size:16px;line-height:1.5;margin:8px 0 18px}.reko-loading-cards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.reko-loading-cards>div{padding:18px;border:1px solid #d4ddd7;border-radius:12px}.reko-loading-cards i{display:block;height:16px;margin:10px 0;background:linear-gradient(100deg,#e8eeea 30%,#fafcfb 50%,#e8eeea 70%);background-size:200% 100%;animation:reko-wait 1.6s infinite;border-radius:5px}.reko-loading-cards i:nth-child(2){width:65%}
+.reko-cadastral-glossary{margin:16px 0;padding:12px 0;border-top:1px solid #d4ddd7;line-height:1.5;font-size:15px}.reko-cadastral-glossary summary{cursor:pointer;min-height:44px;display:flex;align-items:center;font-weight:600}.reko-cadastral-glossary dt{font-weight:650;margin-top:12px}.reko-cadastral-glossary dd{margin:3px 0;color:#526157}.reko-card-more{border-top:1px solid #d4ddd7;margin-top:12px;padding-top:6px}.reko-card-more>summary{min-height:44px;cursor:pointer;display:flex;align-items:center;font-weight:650}.reko-card-more>div{display:grid;gap:12px;padding-top:12px}.reko-empty-actions{display:flex;flex-wrap:wrap;gap:12px;margin:18px 0}.reko-map-skeleton{min-height:260px;display:grid;place-items:center;background:#eff4f1;border-radius:12px}.reko-search-results{position:relative}.reko-search-results[aria-busy=true]>.reko-result-grid{opacity:.6}
+@keyframes reko-wait{to{background-position:-200% 0}}@media(prefers-reduced-motion:reduce){.reko-loading-cards i{animation:none}}
+@media(max-width:600px){.reko-loading-cards{grid-template-columns:1fr}.reko-loading-cards>div:not(:first-child){display:none}.reko-matched-units{list-style:decimal;margin:.75rem 0;padding-left:1.6rem;display:grid;gap:.65rem}.reko-matched-units li{overflow-wrap:anywhere}.reko-matched-units li>span{display:block}.reko-matched-parcel-units{margin:.75rem 0}.reko-matched-parcel-units summary{cursor:pointer;font-weight:700}
+.reko-search-progress{gap:6px;font-size:13px}.trova-workspace .trova-catalog-actions,.trova-workspace .trova-wizard-actions{padding-bottom:calc(12px + env(safe-area-inset-bottom));flex-shrink:0}.trova-workspace button,.trova-workspace summary{min-height:44px}.trova-workspace .reko-result-card{min-width:0}.reko-card-more .reko-result-summary{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.reko-search-refinements{padding:1rem;border:1px solid var(--border);border-radius:1rem;margin-block:.75rem}
+.reko-search-refinements summary{font-weight:700;cursor:pointer}
+.reko-search-refinements>p{margin-block:.65rem}
+.reko-search-refinements>div{display:flex;flex-wrap:wrap;gap:.6rem}
+.reko-search-refinements button{white-space:normal;text-align:left;max-width:100%}
+/* Giro 4: touch targets and compact result surfaces at tablet widths. */
+.trova-workspace,.trova-results-panel,.reko-result-card,.reko-results-heading{min-width:0;max-width:100%;overflow-wrap:anywhere}
+.trova-workspace button,.trova-workspace select,.trova-workspace input,.trova-result-view button,.reko-pagination button{min-height:44px}
+.trova-workspace input,.trova-workspace select{min-width:0;max-width:100%;box-sizing:border-box}
+@media(max-width:899px){
+ .trova-territorial-results,.trova-catalog-results{display:block!important;max-width:100%}
+ .trova-result-view{display:flex!important;position:sticky;top:0;z-index:5}
+ .trova-territorial-results[data-view="list"]>section{display:none!important}
+ .trova-territorial-results[data-view="map"]>.trova-results-panel{display:none!important}
+ .reko-result-grid{grid-template-columns:minmax(0,1fr)!important}
+ .reko-query-tags,.reko-results-heading,.reko-result-title{flex-wrap:wrap}
+ .trova-workspace .crm-tabs{flex-wrap:wrap}
+ .trova-workspace .crm-tabs button{flex:1 1 auto}
+}
+@media(max-width:899px){.trova-result-view{display:flex!important;gap:8px}.reko-search-workspace.is-guided{display:flex!important;flex-direction:column;min-width:0}.reko-search-workspace.is-guided[data-view="list"]>.reko-map-stage{display:none!important}.reko-search-workspace.is-guided[data-view="map"]>.reko-search-results{display:none!important}.reko-result-grid{grid-template-columns:minmax(0,1fr)!important}}
+.reko-crm-transfer{display:grid;gap:8px;min-width:0}.reko-crm-transfer p{overflow-wrap:anywhere}.reko-crm-transfer [role=alert]{color:#a12820}

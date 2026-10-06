@@ -53,7 +53,17 @@ it('refuses invalid criteria with Trova messages', function (array $input, strin
     'no municipality' => [['code' => ''], 'Seleziona un Comune con archivio disponibile.'],
     'unknown path' => [['segment' => 'corporate'], 'Percorso non valido.'],
     'garage outside private' => [['segment' => 'business', 'housing' => 'garage'], 'Scegli abitazioni o box auto nel percorso Private.'],
-    'housing not ported yet' => [['housing' => 'apartment'], 'Scegli abitazioni o box auto nel percorso Private.'],
+    'unknown housing' => [['housing' => 'villa'], 'Scegli abitazioni o box auto nel percorso Private.'],
+    'floor outside apartments' => [['floorMin' => 1], 'Scegli un piano documentato nel percorso Private · Appartamento.'],
+    'floor not an integer' => [['housing' => 'apartment', 'floorMax' => '2'], 'Scegli un piano documentato nel percorso Private · Appartamento.'],
+    'floors reversed' => [['housing' => 'apartment', 'floorMin' => 3, 'floorMax' => 1], 'Il piano minimo non può superare il piano massimo.'],
+    'top floor outside apartments' => [['topFloor' => true], 'Ultimo piano è disponibile per gli appartamenti Private.'],
+    'top floor and range' => [['housing' => 'apartment', 'topFloor' => true, 'floorMin' => 1], 'Scegli Ultimo piano oppure un intervallo, non entrambi.'],
+    'exact floor outside garages' => [['exactFloor' => -1], 'Scegli un piano disponibile per il box o il singolo spazio.'],
+    'activity outside business' => [['activity' => 'shop'], 'Scegli un’attività valida nel percorso Business.'],
+    'unknown activity' => [['segment' => 'business', 'activity' => 'casino'], 'Scegli un’attività valida nel percorso Business.'],
+    'related without activity' => [['includeRelated' => true], 'Scegli un’attività prima di ampliare la ricerca.'],
+    'range on an activity without measure' => [['segment' => 'business', 'activity' => 'hotel'], 'Per un intervallo scegli solo categorie in vani, solo categorie in m² oppure solo categorie in m³.'],
     'unknown business type' => [['segment' => 'business', 'businessType' => 'bar'], 'Categoria non valida.'],
     'category outside the path' => [['categories' => ['C/1']], 'Categoria catastale non valida.'],
     'hidden category' => [['categories' => ['B/1']], 'Categoria catastale non valida.'],
@@ -84,7 +94,6 @@ it('keeps the range optional when measures are mixed or missing', function () {
         ->and(CatalogSearch::requiredMeasure('business', null, ['C1', 'D'], ['A/10']))->toBe('vani');
 });
 
-
 it('accepts a circle with default radius and distance sort', function () use ($base) {
     $criteria = CatalogSearch::validate([
         ...$base,
@@ -110,4 +119,26 @@ it('normalizes circle radius and refuses invalid circles', function () use ($bas
         ->toThrow(SearchException::class, 'Il raggio deve essere tra 200 e 5000 metri, a passi di 50.')
         ->and(fn () => CatalogSearch::validate([...$base, 'circle' => 'near']))
         ->toThrow(SearchException::class, 'Punto di ricerca non valido.');
+});
+
+it('normalizes drawn zones to closed GeoJSON and validates zone identifiers', function () use ($base) {
+    $criteria = CatalogSearch::validate([...$base, 'zoneId' => '21', 'polygon' => null]);
+    expect($criteria['zoneId'])->toBe(21)
+        ->and(CatalogSearch::validate([...$base, 'polygon' => [[7.5, 44.3], [7.6, 44.3], [7.6, 44.4]]])['polygon'])
+        ->toBe(json_encode(['type' => 'Polygon', 'coordinates' => [[[7.5, 44.3], [7.6, 44.3], [7.6, 44.4], [7.5, 44.3]]]], JSON_THROW_ON_ERROR | JSON_PRESERVE_ZERO_FRACTION));
+
+    expect(fn () => CatalogSearch::validate([...$base, 'polygon' => [[7.5, 44.3], [7.6, 44.3]]]))
+        ->toThrow(SearchException::class, 'Disegna da 3 a 200 vertici per delimitare la zona.')
+        ->and(fn () => CatalogSearch::validate([...$base, 'polygon' => array_map(fn ($i) => [7.5 + cos($i / 10.5) / 100, 44.3 + sin($i / 10.5) / 100], range(1, 65))]))
+        ->toThrow(SearchException::class, 'Disegna la zona con al massimo 64 punti.')
+        ->and(fn () => CatalogSearch::validate([...$base, 'polygon' => [[7.5, 44.3], [7.6, 44.4], [7.6, 44.3], [7.5, 44.4]]]))
+        ->toThrow(SearchException::class, 'I confini si incrociano. Sposta i vertici prima di salvare.')
+        ->and(fn () => CatalogSearch::validate([...$base, 'polygon' => [[7.5, 44.3], [7.6, 44.3], [7.5, 44.3]]]))
+        ->toThrow(SearchException::class, 'I vertici della zona devono essere distinti.')
+        ->and(fn () => CatalogSearch::validate([...$base, 'polygon' => [[7.5, 44.3], [7.6, 44.3], [7.7, 44.3]]]))
+        ->toThrow(SearchException::class, 'La zona deve racchiudere un’area, non soltanto una linea.')
+        ->and(fn () => CatalogSearch::validate([...$base, 'zoneId' => 0]))
+        ->toThrow(SearchException::class, 'Zona non valida.')
+        ->and(fn () => CatalogSearch::validate([...$base, 'zoneId' => 21, 'circle' => ['lat' => 44.4, 'lng' => 7.5]]))
+        ->toThrow(SearchException::class, 'Scegli un solo metodo per delimitare la zona.');
 });

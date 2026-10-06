@@ -1,0 +1,21 @@
+:root {
+  color-scheme: light;
+  --reko-brand: #ffc93c;
+  --reko-paper: #ffffff;
+  --reko-background: #f7f8f6;
+  --reko-ink: #1b211d;
+  --reko-muted: #515b54;
+  --reko-line: #d7ddd8;
+  --reko-control-line: #78847c;
+  --reko-accent-ink: #3f390b;
+  --reko-focus: #405e49;
+  --reko-soft: #eff2ef;
+  --reko-yellow-soft: #fff5d7;
+  --reko-danger: #a52232;
+  --reko-danger-soft: #fff0f1;
+  --reko-water: #9dd9f3;
+  --reko-map-ground: #f1f3f1;
+  --reko-map-building: #d7dadd;
+  --reko-map-parcel: #000000;
+  --reko-map-lot: #bdebc8;
+}

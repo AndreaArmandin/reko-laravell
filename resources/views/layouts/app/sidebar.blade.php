@@ -20,12 +20,10 @@
                     {{ __('Dashboard') }}
                 </flux:sidebar.item>
 
-                {{-- Trova --}}
-                <flux:sidebar.item icon="magnifying-glass" :href="route('community.search')"
-                    :current="request()->routeIs('community.search')" wire:navigate>
+                {{-- Trova: pagina a schermo intero con il suo layout, quindi senza wire:navigate --}}
+                <flux:sidebar.item icon="magnifying-glass" :href="route('trova')" :current="request()->routeIs('trova')">
                     {{ __('Trova') }}
                 </flux:sidebar.item>
-
 
                 {{-- Agenzie --}}
                 @if (auth()->user()->is_admin)

@@ -1,0 +1,370 @@
+/* Scoped workspace: the existing home, demo and operational CRM keep their layout. */
+.trova-unlock-screen{flex:1;min-height:0;display:flex;align-items:center;justify-content:center;overflow:hidden;padding:clamp(8px,2dvh,24px)}
+.trova-unlock-choice{width:min(720px,100%);max-height:100%;display:flex;flex-direction:column;gap:clamp(8px,2dvh,20px);border:1px solid #54644c;border-radius:18px;background:var(--reko-paper);padding:clamp(12px,2dvh,24px);overflow:hidden}
+.trova-unlock-choice header p,.trova-unlock-choice footer>span{font-size:18px;color:var(--reko-ink);line-height:1.3;margin:0}
+.trova-unlock-choice h3{font-size:clamp(19px,3dvh,27px);line-height:1.2;margin:6px 0 0;font-weight:750}
+.trova-unlock-fields{display:grid;grid-template-columns:minmax(110px,.75fr) minmax(0,1fr);gap:20px;align-items:center}
+.trova-unlock-fields label{display:flex;flex-direction:column;gap:6px;font-size:18px}
+.trova-unlock-fields select{width:100%;min-height:44px;border:1px solid #788a7b;border-radius:9px;padding:6px 10px;background:var(--reko-paper);color:var(--reko-ink);font-size:18px}
+.trova-unlock-fields dl{display:grid;gap:6px;margin:0;font-size:18px}
+.trova-unlock-fields dl>div{display:flex;gap:8px;justify-content:space-between}
+.trova-unlock-fields dd{font-weight:700;white-space:nowrap;color:var(--reko-accent-ink)}
+.trova-unlock-choice footer{display:flex;flex-direction:column;gap:8px}
+.trova-unlock-choice footer>div{display:flex;justify-content:flex-end;gap:10px}
+.trova-unlock-choice footer button{min-height:44px}
+.trova-unlock-choice [role=alert],.trova-unlock-choice [role=status]{font-size:18px;margin:0;line-height:1.25}
+.trova-unlocked-nav{display:flex;gap:10px;align-items:center;justify-content:center;font-size:18px;min-height:44px}
+.trova-unlocked-nav button{min-width:44px;min-height:44px;border:1px solid #526353;padding:6px 12px;border-radius:8px}
+.trova-unlocked-nav button:disabled{opacity:.4}
+@media(max-height:480px){.trova-unlock-screen{padding:4px}.trova-unlock-choice{gap:7px;padding:10px;max-width:800px}.trova-unlock-choice header{display:flex;flex-direction:row-reverse;justify-content:space-between;gap:12px;align-items:center}.trova-unlock-choice header h3{font-size:18px;margin:0}.trova-unlock-choice footer{flex-direction:row;align-items:center;justify-content:space-between}.trova-unlock-fields dl{grid-template-columns:repeat(3,1fr)}.trova-unlock-fields dl>div{flex-direction:column;gap:0}.trova-unlock-fields{grid-template-columns:1fr 2fr}.trova-unlock-fields label{flex-direction:row;align-items:center}.trova-unlock-fields select{width:70px}}
+.trova-fullscreen[hidden],.trova-fullscreen [hidden]{display:none!important}
+.trova-fullscreen{position:fixed;inset:0;z-index:1200;width:100%;height:100dvh;display:flex;flex-direction:column;overflow:hidden;overscroll-behavior:none;background:var(--reko-paper);color:var(--reko-ink);isolation:isolate}
+.trova-header{flex:none;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px clamp(16px,3vw,40px);border-bottom:1px solid #394039;background:var(--reko-paper)}
+.trova-header .reko-wordmark{font-size:25px;padding:8px 14px;line-height:1.15}
+.trova-header>div{display:flex;align-items:center;gap:10px}
+.trova-utility{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:44px;padding:8px 12px;border:1px solid #555e56;border-radius:9px;background:var(--reko-paper);color:var(--reko-ink)}
+.trova-fullscreen button:focus-visible,.trova-fullscreen a:focus-visible,.reko-favorite:focus-visible{outline:3px solid var(--reko-yellow);outline-offset:3px}
+.trova-workspace,.trova-slides,.trova-results{flex:1;min-height:0;overflow:hidden;display:flex;flex-direction:column}
+.trova-fullscreen .wizard-card,.trova-fullscreen .reko-guided-catalog,.trova-fullscreen .reko-catalog-journey{flex:1;min-height:0;height:100%;max-height:100%;width:100%;margin:0;border-radius:0;box-shadow:none;display:flex;flex-direction:column;overflow:hidden;border:0}
+.trova-fullscreen .wizard-card>div:first-child{flex:none}
+.trova-fullscreen .wizard-card{position:relative;padding-bottom:74px}
+.trova-fullscreen .wizard-card [data-trova-next]{position:absolute;bottom:16px;right:clamp(20px,5vw,70px);z-index:5}
+.trova-fullscreen .trova-slide-body{width:100%;flex:1;min-height:0;max-height:100%;overflow:auto;overscroll-behavior:contain;scrollbar-gutter:stable;animation:trova-slide-in .18s ease-out}
+.trova-fullscreen .trova-slide-body h3:focus,.trova-fullscreen #catalog-question:focus{outline:none}
+.trova-fullscreen .reko-catalog-journey{position:relative;max-width:1100px;align-self:center;padding:16px clamp(16px,3vw,32px) 78px}
+.trova-fullscreen .reko-catalog-journey [data-trova-next]{position:absolute;bottom:16px;right:32px;z-index:5;min-width:150px;width:auto;max-width:calc(100% - 64px);min-height:44px}
+.trova-fullscreen .reko-catalog-journey>.reko-journey-top,.trova-fullscreen .reko-catalog-journey>.reko-journey-progress{flex:none}
+.trova-fullscreen .reko-catalog-journey>h3{flex:none;margin:14px 0;font-size:clamp(1.4rem,3vw,2rem)}
+.trova-fullscreen .trova-catalog-slide{min-height:0;flex:1;overflow:auto;overscroll-behavior:contain;scrollbar-gutter:stable;animation:trova-slide-in .18s ease-out;padding:4px}
+.trova-fullscreen .reko-catalog-journey .crm-form{max-width:none}
+.trova-fullscreen .reko-catalog-journey .reko-catalog-map{height:clamp(230px,40dvh,440px)}
+.trova-fullscreen .reko-finder{height:100%;min-height:0;display:flex;flex-direction:column;overflow:hidden;padding:12px clamp(12px,2vw,26px)}
+.trova-fullscreen .reko-finder>.reko-journey-top{flex:none;margin-bottom:8px;gap:8px}
+.trova-fullscreen .reko-finder>.reko-journey-selection{display:none}
+.trova-fullscreen .trova-access-controls{flex:none;overflow:hidden}
+.trova-fullscreen .trova-access-controls section{padding:10px;margin:0 0 8px}
+body .trova-fullscreen .reko-search-workspace.is-guided{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1.05fr) minmax(0,1fr);gap:16px;overflow:hidden}
+body .trova-fullscreen .reko-search-workspace.is-guided>.reko-search-results{grid-column:1;grid-row:1}
+body .trova-fullscreen .reko-search-workspace.is-guided>.reko-map-stage{grid-column:2;grid-row:1}
+.trova-start-choice{border:1px solid #cbd6d0;border-radius:12px;background:#fff;overflow:hidden}
+.trova-start-choice>summary{min-height:64px;padding:12px 14px;display:flex;align-items:center;justify-content:space-between;gap:8px;cursor:pointer;list-style:none}
+.trova-start-choice>summary::after{content:'⌄';font-size:26px;line-height:1;margin-left:10px;transition:transform .15s}
+.trova-start-choice[open]>summary::after{transform:rotate(180deg)}
+.trova-start-choice>summary::-webkit-details-marker{display:none}
+.trova-start-choice>summary strong{font-weight:650;min-width:0;word-break:normal}
+.trova-start-choice>div{display:grid;gap:6px;padding:8px;border-top:1px solid #d6dfd9}
+.trova-start-choice>div>button{min-height:48px;display:flex;align-items:center;gap:12px;text-align:left;padding:10px 14px;border-radius:8px}
+.trova-start-choice>div>button:hover,.trova-start-choice>div>button[aria-pressed=true]{background:#fff2c9}
+.trova-start-choice>div>button:disabled{opacity:.45;cursor:not-allowed}
+.trova-start-choice .trova-choice-grid{grid-template-columns:1fr}
+.trova-focused[data-trova-step=zone] .trova-start-choice,.trova-corporate-zone .trova-start-choice{position:relative;overflow:visible;z-index:20}
+.trova-focused[data-trova-step=zone] .trova-start-choice[open]>div,.trova-corporate-zone .trova-start-choice[open]>div{position:absolute;top:calc(100% - 1px);left:0;right:0;z-index:21;max-height:min(55dvh,380px);overflow:auto;border:1px solid #cbd6d0;border-radius:0 0 12px 12px;background:#fff;box-shadow:0 12px 24px #17231729}
+.trova-zone-direct-address{display:flex;align-items:end;gap:10px;min-width:0}.trova-zone-direct-address> :first-child{flex:1;min-width:0}.trova-zone-direct-address button{flex:none;min-height:46px}
+.trova-zone-methods{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.trova-zone-methods button{min-height:54px;display:flex;align-items:center;gap:10px;text-align:left;padding:12px 16px;border:1px solid #6a766d;border-radius:10px;background:#fff;color:#1b2920}.trova-zone-methods button:hover,.trova-zone-methods button[aria-pressed=true]{background:#fff2c9;border-color:#8d731e}
+@media(max-width:600px){.trova-zone-methods{grid-template-columns:1fr}.trova-zone-direct-address{flex-wrap:wrap}.trova-zone-direct-address button{width:100%}}
+.trova-zone-overview{margin-top:12px;min-height:55dvh}
+.trova-zone-overview .reko-3d,.trova-zone-overview .reko-3d-canvas-wrap{min-height:55dvh}
+.trova-fullscreen .reko-catalog-journey .trova-zone-overview .reko-catalog-map{height:auto;min-height:0;overflow:visible}
+.trova-fullscreen .trova-zone-overview .reko-3d{height:auto;min-height:0;overflow:visible}
+.trova-fullscreen .trova-zone-overview .reko-3d-canvas-wrap{flex:none;height:clamp(280px,50dvh,480px);min-height:280px}
+.trova-zone-overview .trova-zone-focused{min-height:55dvh}
+.trova-fullscreen .trova-focused .trova-start-choice>div>button{min-height:48px;display:flex;flex-direction:row;align-items:center;justify-content:flex-start;padding:10px 14px;border:0;border-radius:8px;gap:12px}
+.trova-fullscreen .trova-focused .trova-start-choice>div>button svg{width:20px;height:20px;flex:none}
+.trova-fullscreen .trova-focused .trova-start-choice>div>button span{display:inline;font-size:18px}
+.trova-fullscreen .trova-focused .trova-zone-overview .trova-focus-map{height:55dvh;min-height:55dvh}
+body .trova-fullscreen .reko-search-workspace.is-guided .reko-search-results{min-height:0;max-height:100%;overflow:auto;overscroll-behavior:contain;scrollbar-gutter:stable;padding:0 5px}
+.trova-fullscreen .reko-map-stage{min-height:0;height:100%;display:flex;flex-direction:column;overflow:hidden;overscroll-behavior:contain}
+.trova-fullscreen .reko-map-stage>.reko-circle-picker{flex:1;min-height:0;display:flex;flex-direction:column}
+.trova-fullscreen .reko-map-stage .reko-catalog-map{flex:1;height:auto;min-height:0;display:flex;flex-direction:column}
+.trova-fullscreen .reko-map-stage .reko-3d{flex:1;height:auto;min-height:0!important}
+.trova-fullscreen .reko-map-stage .reko-3d-canvas-wrap{min-height:80px}
+.trova-fullscreen .reko-map-stage .reko-3d-tools,.trova-fullscreen .reko-map-stage .reko-3d-note,.trova-fullscreen .reko-map-stage .reko-3d-sources{flex:none}
+.trova-fullscreen .reko-map-stage-note{font-size:18px;padding:8px}
+.trova-fullscreen .reko-result-grid{display:flex;flex-direction:column}
+.reko-result-title{display:flex;gap:12px;align-items:flex-start;justify-content:space-between}
+.reko-result-title h3{flex:1;min-width:0}
+.reko-result-facts{margin:14px 0;border:1px solid #47534c;border-radius:9px;overflow:hidden;font-size:18px}
+.reko-result-facts-head,.reko-result-fact{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:9px 12px}
+.reko-result-facts-head{background:var(--reko-paper);color:var(--reko-ink);font-size:18px}
+.reko-result-fact+.reko-result-fact{border-top:1px solid #354039}
+.reko-result-fact strong{color:var(--reko-accent-ink)}
+.reko-favorite{padding:8px 12px;gap:8px;flex:none;min-width:44px;min-height:44px;display:inline-flex;align-items:center;justify-content:center;border:1px solid #67746b;border-radius:10px;color:var(--reko-accent-ink);background:var(--reko-paper);cursor:pointer}
+.reko-favorite[aria-pressed=true]{background:var(--reko-yellow);color:#121810}
+.reko-favorite:disabled{opacity:.45;cursor:wait}
+.reko-favorite-control{display:inline-flex;flex-direction:column;align-items:flex-end;max-width:180px}
+.reko-favorite-error{font-size:18px;color:var(--reko-ink)}
+.reko-favorite-error button{text-decoration:underline;display:block}
+.reko-favorites-dialog{width:min(650px,calc(100vw - 24px));max-height:85dvh;overflow:auto;overscroll-behavior:contain;border:1px solid #79857d;border-radius:14px;background:var(--reko-paper);color:var(--reko-ink);padding:24px;margin:auto}
+.reko-favorites-dialog::backdrop{background:rgb(0 0 0/.8)}
+.reko-favorites-dialog header{display:flex;justify-content:space-between;gap:20px;align-items:center}
+.reko-favorites-dialog header h2{font-size:24px;font-weight:800}
+.reko-favorites-dialog header button{min-height:44px;min-width:44px;display:grid;place-content:center}
+.reko-favorites-dialog li{padding:16px 0;border-bottom:1px solid #425146;display:flex;justify-content:space-between;gap:12px}
+.reko-favorites-dialog h3{font-weight:700}
+.reko-favorites-dialog p{font-size:18px;margin:10px 0}
+.reko-favorites-dialog a{color:var(--reko-accent-ink);text-decoration:underline}
+.trova-results-nav{padding:10px 20px;display:flex;align-items:center;justify-content:space-between;gap:10px;flex:none;flex-wrap:wrap;border-bottom:1px solid #3c443e}
+.trova-results-nav ol{display:flex;gap:16px;flex-wrap:wrap;font-size:18px;color:var(--reko-ink)}
+.trova-results-nav [aria-current=step]{color:var(--reko-accent-ink);font-weight:800}
+.trova-results-nav>div{display:flex;gap:12px}
+.trova-results-nav button,.trova-state button,.trova-empty button{min-height:44px;border:1px solid #66746b;border-radius:8px;padding:8px 12px}
+.trova-state{padding:40px;overflow:auto}
+.trova-empty{padding:16px;display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+.trova-territorial-results{flex:1;min-height:0;display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:18px;padding:14px 18px;overflow:hidden}
+.trova-territorial-results>.trova-results-panel{grid-column:1;grid-row:1}
+.trova-territorial-results>section{grid-column:2;grid-row:1}
+.trova-territorial-results>section{min-height:0;overflow:auto;overscroll-behavior:contain}
+.trova-territorial-results>section>div:first-child p{font-size:18px}
+.trova-territorial-results>section figure>div{height:clamp(240px,58dvh,850px)}
+.trova-results-panel{min-height:0;overflow:auto;overscroll-behavior:contain;scrollbar-gutter:stable;padding:4px 6px}
+.trova-results-panel>*+*{margin-top:16px}
+.trova-candidate-list>article{padding:12px;border:1px solid #49574e;border-radius:10px;margin-bottom:10px}
+.trova-history-list{list-style:none;padding:0;display:grid;gap:1rem}.trova-history-list>li{border:1px solid #49574e;border-radius:12px;padding:1rem}.trova-history-list h3{font-size:1.125rem;margin:0 0 .4rem}.trova-history-list p{margin:.4rem 0}
+.trova-history-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+.trova-new-search{width:100%;justify-content:center;background:var(--reko-yellow);color:#172018;font-weight:750}
+@media(max-width:600px){.trova-header .trova-utility span{display:none}.trova-header .trova-utility{min-width:44px;min-height:44px;padding:8px}.trova-header>div{gap:4px}}
+.trova-candidate-list>article.is-selected{border-color:var(--reko-accent-ink)}
+.trova-candidate-list .reko-result-title>button{text-align:left;font-weight:700}
+.trova-results-panel .candidate-card{padding:18px}
+@keyframes trova-slide-in{from{opacity:.6;transform:translateX(10px)}to{opacity:1;transform:translateX(0)}}
+@media(max-width:850px){
+ .trova-fullscreen .reko-catalog-journey [data-trova-next]{left:16px;right:16px;width:calc(100% - 32px);max-width:none}
+ .trova-header{padding:10px 14px}
+ .trova-header .reko-wordmark{font-size:22px}
+ .trova-header>div{gap:6px}
+ .trova-utility{font-size:18px;padding:7px}
+ .trova-fullscreen .reko-finder{padding:8px}
+ .trova-fullscreen .reko-finder>.reko-journey-top h3{font-size:18px}
+ body .trova-fullscreen .reko-search-workspace.is-guided{grid-template-columns:1fr;grid-template-rows:minmax(160px,35%) minmax(0,1fr);gap:8px}
+ body .trova-fullscreen .reko-search-workspace.is-guided>.reko-map-stage{grid-column:1;grid-row:1}
+ body .trova-fullscreen .reko-search-workspace.is-guided>.reko-search-results{grid-column:1;grid-row:2}
+ body .trova-fullscreen .reko-search-workspace.is-guided:not(:has(.reko-map-stage)){grid-template-rows:1fr}
+ .trova-fullscreen .reko-map-stage-head,.trova-fullscreen .reko-map-stage-note{display:none}
+ .trova-fullscreen .reko-map-stage .reko-3d{min-height:200px}
+ .trova-territorial-results{grid-template-columns:1fr;grid-template-rows:minmax(180px,37%) minmax(0,1fr);gap:8px;padding:8px}
+ .trova-territorial-results>section>div:first-child{display:none}
+ .trova-territorial-results>section>div{margin:0}
+ .trova-territorial-results>section figure>div{height:220px}
+ .trova-results-nav{padding:7px 12px}
+ .trova-results-nav ol{gap:10px;font-size:18px}
+}
+@media(prefers-reduced-motion:reduce){.trova-fullscreen *{animation:none!important;scroll-behavior:auto!important}}
+
+/* Keep the page fixed; allow inner overflow at large text sizes so labels and controls stay reachable. */
+.trova-fullscreen .trova-focused .trova-slide-body,.trova-fullscreen .trova-focused .trova-catalog-slide{overflow:auto;scrollbar-gutter:auto}
+.trova-fullscreen .trova-focused .trova-slide-body{padding:18px 24px;display:flex;flex-direction:column;gap:16px}
+.trova-fullscreen .trova-focused .trova-slide-body>h3{flex:none;font-size:clamp(22px,2.7vw,32px);line-height:1.15;margin:0}
+.trova-fullscreen .trova-focused .trova-slide-body>.mt-7,.trova-fullscreen .trova-focused .trova-slide-body>.mt-6{margin-top:0}
+.trova-fullscreen .trova-focused.wizard-card:not(:has([data-trova-next])){padding-bottom:12px}
+.trova-fullscreen .trova-focused .trova-slide-body>p{margin:0}
+.trova-fullscreen .trova-focused .trova-wizard-actions{margin:0!important;height:0;padding:0}
+.trova-fullscreen .trova-focused.wizard-card>div:first-child{padding:8px 16px;flex-wrap:nowrap;gap:8px}
+.trova-fullscreen .trova-focused.wizard-card>div:first-child>ol{flex:0 0 auto;flex-wrap:wrap;gap:8px;font-size:14px}
+.trova-fullscreen .trova-focused.wizard-card>div:first-child>button{font-size:0;min-width:40px;padding:8px}
+.trova-fullscreen .trova-focused.wizard-card>div:first-child>button svg{width:20px;height:20px}
+.trova-fullscreen .trova-focused.wizard-card>div:first-child>span{display:none}
+.trova-fullscreen .trova-focused .wizard-choice{padding:14px;gap:12px;min-height:64px}
+.trova-fullscreen .trova-focused .wizard-choice .text-lg{font-size:18px;line-height:1.25}
+.trova-fullscreen .trova-focused .wizard-choice .mt-2{margin-top:4px}
+.trova-fullscreen .trova-focused .field-input,.trova-fullscreen .trova-focused input:not([type=checkbox]):not([type=range]),.trova-fullscreen .trova-focused select{font-size:18px;min-height:46px;width:100%;min-width:0}
+.trova-fullscreen .trova-focused .reko-radius-control{width:100%;max-width:650px;margin:14px auto}
+.trova-fullscreen .trova-focused .is-map-step{display:flex;flex-direction:column;flex:1;min-height:0}
+.trova-fullscreen .trova-focused .is-map-step>div:not(.trova-step-actions){display:flex;flex-direction:column;flex:1;min-height:0}
+.trova-fullscreen .reko-catalog-journey.trova-focused{padding:12px clamp(16px,3vw,40px);max-width:none;gap:8px}
+.trova-fullscreen .trova-focused>.reko-journey-top{margin:0;min-height:34px}
+.trova-question-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;flex:none}
+.trova-question-heading h3{font-size:clamp(22px,3vw,32px);font-weight:750;line-height:1.15;margin:0;min-width:0}
+.trova-question-heading .crm-link{flex:none;display:inline-flex;align-items:center;gap:5px;min-height:44px}
+.trova-fullscreen .trova-focused>.reko-journey-progress{margin:0;padding:0;gap:16px;font-size:18px}
+.trova-fullscreen .trova-focused>h3{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:8px 0;font-size:clamp(22px,3vw,32px);line-height:1.15}
+.trova-fullscreen .trova-focus-form{padding:0;display:flex;flex-direction:column;gap:12px;width:100%;max-width:none}
+.trova-question-content{display:flex;flex-direction:column;gap:18px;min-height:min-content;flex:none;justify-content:flex-start}
+.is-map-step .trova-question-content{justify-content:flex-start}
+.trova-step-actions{position:sticky;bottom:0;z-index:5;background:var(--reko-paper);flex:none;order:2;display:flex;justify-content:center;padding:12px 0 max(12px,env(safe-area-inset-bottom));border-top:1px solid #d6dfd9}
+.trova-focused[data-trova-step=zone] .trova-question-content{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(220px,1fr);align-items:start;gap:12px}
+.trova-focused[data-trova-step=zone] .trova-zone-address,.trova-focused[data-trova-step=zone] .trova-start-choice{margin:0;min-width:0}
+.trova-focused[data-trova-step=zone] .trova-zone-overview,.trova-focused[data-trova-step=zone] .reko-radius-control,.trova-focused[data-trova-step=zone] .trova-validation-error,.trova-focused[data-trova-step=zone] .trova-short-note{grid-column:1/-1}
+.trova-fullscreen .trova-focused.reko-catalog-journey [data-trova-next]{position:static;width:auto;max-width:none;min-width:160px}
+.trova-choice-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.trova-fullscreen .trova-focused .reko-home-choice{min-height:90px;display:flex;flex-direction:column;align-items:flex-start;justify-content:center;text-align:left;padding:18px;border:1px solid #48574d;border-radius:14px;background:var(--reko-paper);gap:7px}
+.trova-fullscreen .trova-focused .reko-home-choice strong{font-size:18px;line-height:1.2}
+.trova-fullscreen .trova-focused .reko-home-choice span{font-size:18px;line-height:1.3;color:var(--reko-ink)}
+.trova-fullscreen .trova-focused .reko-home-choice[aria-pressed=true],.trova-fullscreen .trova-focused .reko-home-choice:hover:not(:disabled){border-color:var(--reko-accent-ink);background:var(--reko-yellow-soft);color:var(--reko-ink)}
+.trova-fullscreen .trova-focused .reko-home-choice:disabled{opacity:.4;cursor:not-allowed}
+.trova-range{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;width:100%}
+.trova-range label{min-width:0;display:flex;flex-direction:column;gap:8px;font-size:18px}
+.trova-range input{width:100%;min-width:0;box-sizing:border-box}.trova-range>*{min-width:0}
+.trova-short-note{font-size:18px!important;line-height:1.45!important;color:var(--reko-ink);margin:0!important}
+.trova-inline-label{display:flex;align-items:center;gap:12px;justify-content:space-between}
+.trova-help-button{display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;flex:none;vertical-align:middle;border:1px solid #748377;border-radius:50%;background:var(--reko-paper);color:var(--reko-accent-ink);cursor:pointer}
+.trova-help-dialog{margin:auto;width:min(760px,calc(100vw - 24px));max-height:calc(100dvh - 24px);padding:0;background:var(--reko-paper);color:var(--reko-ink);border:1px solid #708276;border-radius:18px;overflow:hidden;box-shadow:0 24px 100px #000a}
+.trova-help-dialog[open]{display:flex;flex-direction:column}
+.trova-help-dialog::backdrop{background:#000c}
+.trova-help-dialog header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px 20px;border-bottom:1px solid #3d4d42;flex:none}
+.trova-help-dialog h2{font-size:22px;font-weight:700;line-height:1.2}
+.trova-help-dialog header button{display:grid;place-items:center;width:44px;height:44px;flex:none}
+.trova-help-content{padding:20px;overflow:auto;overscroll-behavior:contain;min-height:0;font-size:18px;line-height:1.5}
+.trova-help-content>*+*{margin-top:16px}
+.trova-help-content a{color:var(--reko-accent-ink);text-decoration:underline}
+.trova-help-note{font-size:18px;color:var(--reko-ink)}
+.trova-help-dialog footer{padding:12px 20px;border-top:1px solid #3d4d42;display:flex;justify-content:flex-end;flex:none}
+.trova-dialog-done{border-radius:10px;background:var(--reko-yellow);color:#131910;min-height:44px;padding:10px 22px;font-weight:700}
+.trova-floor-plan svg{display:block;width:100%;max-height:46dvh}
+.trova-floor-plan figcaption{padding-top:12px;text-align:center}
+.trova-zone-focused{min-height:min-content;flex:0 0 auto;display:flex;flex-direction:column;gap:8px;overflow:visible}
+.trova-fullscreen .trova-zone-focused .trova-focus-map{flex:0 0 auto;min-height:50dvh;height:50dvh;margin:0;overflow:hidden;border-radius:12px}
+.trova-fullscreen .trova-focus-map .reko-3d,.trova-fullscreen .trova-focus-map .reko-3d-canvas-wrap,.trova-fullscreen .trova-focus-map .reko-3d-canvas{height:100%!important;min-height:0!important;max-height:none}
+.trova-focus-map .reko-3d-tools,.trova-focus-map details,.trova-focus-map .reko-3d-legend{display:none!important}
+.trova-zone-toolbar{position:sticky;bottom:64px;z-index:4;background:var(--reko-paper);display:flex;align-items:center;justify-content:space-between;gap:8px;flex:none;font-size:18px}
+.trova-zone-toolbar>div{display:flex;gap:6px}
+.trova-zone-toolbar button,.trova-pagination button,.trova-review-pages nav button{min-height:44px;min-width:44px;border:1px solid #536859;border-radius:9px;padding:8px 12px}
+.trova-zone-toolbar button[aria-pressed=true]{background:var(--reko-yellow);color:#10180f;border-color:var(--reko-accent-ink)}
+.trova-zone-toolbar button:disabled,.trova-pagination button:disabled,.trova-review-pages nav button:disabled{opacity:.4}
+.trova-map-status{font-size:18px;line-height:1.3;min-height:18px;flex:none;margin:0}
+.trova-neighborhood-list{display:flex;flex-direction:column;gap:14px;padding-top:12px}
+.trova-selected-zones{display:flex;flex-wrap:wrap;gap:8px}
+.trova-selected-zones button{border:1px solid #61764c;border-radius:8px;padding:6px 10px;font-size:18px;min-height:36px}
+.trova-compact-fields{display:flex;flex-direction:column;gap:16px}
+.trova-single-measure fieldset{border:0;padding:0;margin:0}
+.trova-single-measure legend{display:flex;align-items:center;justify-content:space-between;width:100%;padding:0;margin-bottom:12px;gap:8px}
+.trova-compact-fields label{font-size:18px}
+.trova-compact-fields select{margin-top:7px}
+.trova-check{display:flex;gap:10px;align-items:center;min-height:44px}
+.trova-check input{width:20px;height:20px}
+.trova-review-brief{display:grid;gap:12px}
+.trova-review-brief>div{display:grid;grid-template-columns:minmax(90px,1fr) 2fr;gap:12px;border-bottom:1px solid #384b3d;padding:10px 0}
+.trova-review-brief dt{font-size:18px;color:var(--reko-ink)}
+.trova-review-brief dd{font-weight:650;font-size:18px;line-height:1.4;overflow-wrap:anywhere}
+.trova-review-pages nav,.trova-pagination{display:flex;align-items:center;justify-content:center;gap:16px;margin-top:12px}
+.trova-review-pages .trova-review-brief>div{display:block;padding:8px 0}
+.trova-review-pages .trova-review-brief dd{margin-top:5px}
+.trova-review-long-value{display:flex;gap:8px;align-items:center}
+.reko-reserved-reference{margin:16px 0;padding:14px;background:var(--reko-paper);border:1px solid #414e44;border-radius:12px}
+.reko-reference-fields{display:flex;align-items:center;gap:20px;color:var(--reko-ink)}
+.reko-reference-fields>div{display:flex;flex:1;flex-direction:column;gap:5px;font-size:18px}
+.reko-reference-placeholder{filter:blur(5px);user-select:none;pointer-events:none;font-size:20px;letter-spacing:4px;color:var(--reko-ink)}
+.reko-professional-action{display:inline-flex;align-items:center;gap:8px;text-align:left;min-height:44px;font-size:18px;font-weight:650;color:var(--reko-accent-ink);margin-top:6px}
+.trova-result-view{display:none}
+.trova-fullscreen .reko-result-card{background:var(--reko-paper);border:1px solid #405047;border-radius:18px;padding:20px;box-shadow:none}
+.trova-fullscreen .reko-result-card.is-selected{border-color:var(--reko-accent-ink);box-shadow:inset 3px 0 var(--reko-yellow)}
+.trova-fullscreen .reko-result-title h3,.trova-fullscreen .reko-result-title>button{font-size:20px;line-height:1.3;color:var(--reko-ink)}
+.trova-fullscreen .reko-result-type{font-size:18px;color:var(--reko-ink);margin-bottom:16px;display:flex;align-items:center;gap:10px}
+.trova-fullscreen .reko-result-type .reko-favorite-control{margin-left:auto}
+.trova-fullscreen .reko-result-card .trova-facts-block,.trova-fullscreen .trova-candidate-list .trova-facts-block{display:none}
+.trova-fullscreen .reko-result-summary-table{grid-template-columns:repeat(2,minmax(0,1fr));gap:0;border:1px solid #405746;border-radius:10px;overflow:hidden}
+.trova-fullscreen .reko-result-summary-table>div{padding:10px 12px;min-width:0;border-bottom:1px solid #d5ded6}
+.trova-fullscreen .reko-result-summary-table>div:nth-child(odd){border-right:1px solid #d5ded6}
+.trova-fullscreen .reko-result-summary-table>div:nth-last-child(-n+2){border-bottom:0}
+.trova-fullscreen .reko-result-type .proto-number{display:grid;place-items:center;width:30px;height:30px;border-radius:50%;background:var(--reko-yellow);color:#142011}
+.trova-fullscreen .reko-result-facts{background:var(--reko-paper);border-color:#405746}
+.trova-fullscreen .reko-result-summary{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:16px 0}
+.trova-fullscreen .reko-result-summary dt{font-size:18px;color:var(--reko-ink)}
+.trova-fullscreen .reko-result-summary dd{font-size:20px;font-weight:700;margin-top:6px}
+@media(max-width:600px){
+ .trova-fullscreen .trova-focused .trova-slide-body{padding:16px;gap:14px}
+ .trova-fullscreen .reko-catalog-journey.trova-focused{padding:10px 16px;gap:6px}
+ .trova-fullscreen .trova-focused>.reko-journey-top{flex-wrap:nowrap;gap:8px}
+ .trova-fullscreen .trova-focused>.reko-journey-top .proto-eyebrow{font-size:14px;letter-spacing:.03em;margin:0;min-width:0}
+ .trova-fullscreen .trova-focused>.reko-journey-top .crm-link{flex:none}
+ .trova-fullscreen .trova-focused>.reko-journey-progress{gap:8px;font-size:14px}
+ .trova-fullscreen .trova-criteria-summary{gap:16px}
+ .trova-fullscreen .trova-focused .reko-home-choice{padding:12px;min-height:84px}
+ .trova-fullscreen .trova-focused .reko-home-choice strong{font-size:18px}
+ .trova-question-content{gap:14px}
+ .trova-focused[data-trova-step=zone] .trova-question-content{grid-template-columns:1fr}
+ .trova-focused[data-trova-step=zone] .trova-zone-overview,.trova-focused[data-trova-step=zone] .reko-radius-control,.trova-focused[data-trova-step=zone] .trova-validation-error,.trova-focused[data-trova-step=zone] .trova-short-note{grid-column:1}
+ .trova-fullscreen .trova-focused.reko-catalog-journey [data-trova-next]{width:100%}
+ .trova-choice-grid{gap:10px}
+ .trova-help-dialog h2{font-size:19px}
+ .trova-help-content{padding:14px}
+ .trova-fullscreen .trova-focused[data-trova-step=journey] .grid,.trova-fullscreen .trova-focused[data-trova-step=where-mode] .grid,.trova-fullscreen .trova-focused[data-trova-step=commercial-scope] .grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+ .trova-fullscreen .trova-focused .wizard-choice{display:flex;flex-direction:column;align-items:flex-start;padding:12px;gap:6px}
+ .trova-fullscreen .trova-focused .wizard-choice .mt-2{font-size:18px;line-height:1.3}
+}
+@media(max-width:850px){
+ .trova-result-view{display:flex;gap:6px;padding:6px 0;flex:none}
+ .trova-result-view button{min-height:44px;flex:1;border:1px solid #536758;border-radius:10px;color:var(--reko-ink)}
+ .trova-result-view button[aria-pressed=true]{background:var(--reko-yellow);border-color:var(--reko-accent-ink);color:#131e12;font-weight:700}
+ body .trova-fullscreen .reko-search-workspace.is-guided{display:flex;flex-direction:column}
+ body .trova-fullscreen .reko-search-workspace.is-guided[data-view=list]>.reko-map-stage{display:none}
+ body .trova-fullscreen .reko-search-workspace.is-guided[data-view=map]>.reko-search-results{display:none}
+ body .trova-fullscreen .reko-search-workspace.is-guided>.reko-search-results{flex:1}
+ .trova-territorial-results{display:flex;flex-direction:column}
+ .trova-territorial-results[data-view=list]>section{display:none}
+ .trova-territorial-results[data-view=map]>.trova-results-panel{display:none}
+ .trova-territorial-results>section,.trova-territorial-results>.trova-results-panel{flex:1}
+ .trova-fullscreen .reko-result-card{padding:16px}
+}
+@media(max-height:540px){
+ .trova-header{padding:5px 14px}
+ .trova-header .reko-wordmark{font-size:19px;padding:5px 10px}
+ .trova-fullscreen .trova-focused .trova-slide-body{padding:8px 20px;gap:8px}
+ .trova-fullscreen .trova-focused>.reko-journey-progress{font-size:18px;line-height:1.1;gap:12px}
+ .trova-fullscreen .trova-focused>h3,.trova-fullscreen .trova-focused .trova-slide-body>h3{font-size:21px;margin:0}
+ .trova-fullscreen .trova-focused .reko-home-choice{min-height:60px;padding:9px;gap:4px;flex-direction:row;align-items:center}
+ .trova-fullscreen .trova-focused .reko-home-choice span{display:none}
+ .trova-fullscreen .trova-focused .wizard-choice .mt-2{display:none}
+ .trova-fullscreen .trova-focused .wizard-choice{min-height:52px;padding:10px;flex-direction:row}
+ .trova-fullscreen .trova-focused.wizard-card{padding-bottom:56px}
+ .trova-fullscreen .trova-focused.wizard-card [data-trova-next]{bottom:6px}
+ .trova-fullscreen .reko-catalog-journey.trova-focused{padding:6px 16px;gap:4px}
+ .trova-question-content{gap:8px}
+ .trova-step-actions{padding-top:4px}
+ .trova-compact-fields{gap:8px}
+ .trova-compact-fields:has(>label:nth-child(2)){display:grid;grid-template-columns:1fr 1fr}
+ .trova-review-brief{gap:3px;grid-template-columns:1fr 1fr}
+ .trova-neighborhood-list{display:grid;grid-template-columns:1fr 1fr;padding:0;gap:12px;font-size:18px}
+ .trova-review-brief>div{padding:4px 0}
+ .trova-review-pages nav,.trova-pagination{margin-top:6px}
+ .trova-fullscreen .trova-focused .reko-radius-control{margin:4px auto}
+ .trova-fullscreen .trova-focused .reko-radius-control p{display:none}
+}
+@media(max-width:600px){.reko-result-title{flex-wrap:wrap;gap:12px}.reko-result-title h3{width:100%;flex-basis:100%;word-break:normal;overflow-wrap:break-word}.trova-fullscreen .reko-result-title .reko-favorite-control{max-width:none;align-items:flex-start}.trova-header{flex-wrap:wrap;gap:8px}.trova-header>div{width:100%;display:flex;gap:4px}.trova-utility span{display:inline!important}.trova-utility{font-size:14px;gap:4px;padding:8px}.trova-header>div .trova-utility{flex:1;flex-direction:column;font-size:14px;line-height:1.2}}
+/* Keep primary actions outside the scrollable question body (including WebKit). */
+.trova-fullscreen .trova-focused.wizard-card:has(>.trova-wizard-footer){padding-bottom:0}
+.trova-wizard-footer{position:relative;z-index:6;isolation:isolate;flex:none;display:flex;justify-content:center;align-items:center;gap:12px;padding:10px clamp(20px,5vw,70px) max(10px,env(safe-area-inset-bottom));background:var(--reko-paper);border-top:1px solid #d6dfd9}
+.trova-wizard-footer:empty{display:none}
+.trova-fullscreen .trova-focused.wizard-card>.trova-wizard-footer [data-trova-next]{position:static;min-height:44px;min-width:160px;max-width:100%}
+.trova-fullscreen .trova-focused .trova-slide-body{max-width:none}
+.trova-start-menu{display:grid;gap:12px;padding:8px 0}
+.trova-start-menu>button,.trova-start-menu .trova-utility{width:100%;min-height:56px;justify-content:center;font-size:18px;font-weight:700}
+.reko-result-address-row{display:flex;align-items:center;justify-content:space-between;gap:8px 16px;flex-wrap:wrap}
+.reko-result-address-row p{margin:0}
+.reko-result-map-links{display:flex;flex-wrap:wrap;gap:8px 16px}
+
+/* Giro 6: explicit, scoped hit areas; no invisible overlay or map capture. */
+.trova-fullscreen a.crm-link,.trova-fullscreen button.crm-link,.trova-fullscreen .reko-card-more>summary,.trova-fullscreen .reko-matched-parcel-units>summary,.trova-help-dialog a.crm-link,.trova-help-dialog button,.trova-help-dialog summary{min-height:44px;min-width:44px;display:inline-flex;align-items:center;gap:6px;padding-block:10px}
+.trova-fullscreen .reko-search-refinements{border:2px solid #c87636;border-radius:12px;background:#fff7eb;padding:12px 16px;margin-block:16px}
+.trova-fullscreen .reko-search-refinements>summary{min-height:44px;cursor:pointer;font-weight:750;color:#6e3819;align-content:center}
+.reko-unit-match{display:inline-flex;margin:4px 8px;padding:4px 10px;border-radius:20px;background:#e5f3e9;color:#245a37;font-weight:700}
+/* Giro 7: grouped Corporate steps, no extra radius/order/review screens. */
+.trova-corporate-methods{display:flex;flex-wrap:wrap;gap:8px}
+.trova-corporate-methods button{min-height:44px;flex:1 1 140px;padding:10px 12px;border:1px solid var(--border);border-radius:10px;background:var(--reko-paper);color:inherit}
+.trova-corporate-methods button[aria-pressed=true]{background:#ffcf33;color:#15211c;border-color:#735b10;font-weight:700}
+.trova-corporate-options{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:10px}
+.trova-corporate-options label{display:flex;align-items:center;gap:10px;padding:12px;border:1px solid var(--border);border-radius:10px;min-height:56px;cursor:pointer}
+.trova-corporate-options span{min-width:0;overflow-wrap:anywhere}.trova-corporate-options small{display:block;font-size:12px;color:var(--muted-foreground)}
+.trova-corporate-fieldset{border:1px solid var(--border);border-radius:12px;padding:12px;min-width:0}.trova-corporate-fieldset legend{font-weight:650;padding:0 6px}
+.trova-corporate-dimensions{display:grid;gap:14px;min-width:0}.trova-corporate-dimensions .trova-compact-fields{margin:0}
+.trova-corporate-summary{font-size:14px;line-height:1.5;overflow-wrap:anywhere}.trova-corporate-summary p{margin:0 0 5px}
+.trova-corporate-result-summary{border:1px solid var(--border);padding:14px;border-radius:12px}
+.trova-fullscreen .trova-corporate-zone .trova-focus-map{height:50dvh;min-height:50dvh}
+.trova-corporate-zone .trova-corporate-methods{flex:none}
+@media(max-width:500px){.trova-corporate-options{grid-template-columns:1fr}.trova-corporate-category .trova-category-chips button{max-width:100%;white-space:normal;overflow-wrap:anywhere}}
+.reko-matched-parcel-units > summary {display:flex!important;align-items:center;justify-content:space-between;gap:12px;min-height:48px;width:100%;padding:12px 16px!important;border:1px solid #626d62;border-radius:10px;background:#fff6ce;color:#262c23;cursor:pointer;font-weight:700;list-style:none}
+.reko-matched-parcel-units > summary::-webkit-details-marker {display:none}
+.reko-matched-parcel-units > summary:hover {background:#ffe997}
+.reko-matched-parcel-units > summary:focus-visible {outline:3px solid #506842;outline-offset:3px}
+.reko-matched-parcel-units .reko-units-chevron {font-size:24px;line-height:1;transition:transform .15s}
+.reko-matched-parcel-units[open] > summary .reko-units-chevron {transform:rotate(180deg)}
+
+/* The required first choice is visible, never hidden in a disclosure. */
+.trova-start-options{border:0;padding:0;margin-inline:0;min-width:0}
+.trova-start-options legend{font-size:1.125rem;font-weight:650;margin-bottom:12px}
+.trova-start-options>div{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.trova-start-options button{display:flex;align-items:center;gap:12px;min-height:58px;padding:14px 16px;text-align:left;border:1px solid #b8c3bb;border-radius:10px;background:#fff;color:#192420;font-size:1rem;line-height:1.4}
+.trova-start-options button svg{flex-shrink:0}
+.trova-start-options button[aria-pressed=true]{background:#fff0b9;border:2px solid #8e700c;padding:13px 15px;font-weight:700}
+.trova-start-options button:disabled{opacity:.5;cursor:not-allowed}
+.trova-start-hint{font-size:.875rem;color:#526157;line-height:1.5;margin-top:14px}
+@media(max-width:520px){.trova-start-options>div{grid-template-columns:1fr}.trova-start-options button{min-height:48px}}

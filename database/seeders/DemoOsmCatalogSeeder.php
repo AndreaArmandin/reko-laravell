@@ -10,6 +10,7 @@ use App\Models\Municipality;
 use App\Models\MunicipalityCatalog;
 use App\Models\Parcel;
 use App\Trova\Categories;
+use App\Trova\UnitFacts;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\DB;
 use RuntimeException;
@@ -111,6 +112,9 @@ class DemoOsmCatalogSeeder extends Seeder
                 'catalog_release_id' => $release->id,
                 'activated_at' => now(),
             ]);
+
+            // Piani e classificazione abitativa, come l'indice precalcolato di Trova
+            app(UnitFacts::class)->build($release->id);
         });
 
         $units = CadastralUnitVersion::query()->whereHas('catalogRelease', fn ($q) => $q->where('code', 'DEMO-'.self::CODE))->count();

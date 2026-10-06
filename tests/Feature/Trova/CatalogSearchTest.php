@@ -190,6 +190,29 @@ it('matches whole street words and cadastral references', function () {
         ->and(trovaSearch(['segment' => 'private', 'section' => 'A', ...WIDE])->total)->toBe(0);
 });
 
+it('filters parcels by a named zone and a user drawn polygon with PostGIS', function () {
+    $zoneId = DB::table('geographic_zones')->insertGetId([
+        'municipality_id' => $this->municipality->id,
+        'code' => 'CENTRO',
+        'name' => 'Centro',
+        'kind' => 'quartiere',
+        'indicative' => true,
+        'source' => 'test fixture',
+        'created_at' => now(),
+        'updated_at' => now(),
+    ]);
+    DB::update(
+        'UPDATE geographic_zones SET boundary = ST_GeomFromText(?, 4326) WHERE id = ?',
+        ['MULTIPOLYGON(((7.54 44.38, 7.56 44.38, 7.56 44.40, 7.54 44.40, 7.54 44.38)))', $zoneId],
+    );
+
+    $zone = trovaSearch(['segment' => 'private', 'zoneId' => $zoneId, ...WIDE]);
+    $drawn = trovaSearch(['segment' => 'private', 'polygon' => [[7.54, 44.38], [7.56, 44.38], [7.56, 44.40], [7.54, 44.40]], ...WIDE]);
+
+    expect(parcelsOf($zone))->toBe(['1/10'])
+        ->and(parcelsOf($drawn))->toBe(['1/10']);
+});
+
 it('sorts like Trova', function (string $sort, array $expected) {
     expect(parcelsOf(trovaSearch(['segment' => 'private', 'sort' => $sort, ...WIDE])))->toBe($expected);
 })->with([

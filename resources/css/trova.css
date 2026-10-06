@@ -1,0 +1,23 @@
+/*
+ * Trova: stesso aspetto dell'app originale (Next.js). I file in ./trova sono
+ * copiati dall'originale senza modifiche, nello stesso ordine di caricamento.
+ * Usato solo dal layout layouts/trova.blade.php, non tocca lo stile Flux.
+ */
+@import 'tailwindcss' source(none);
+@source '../views/pages/trova';
+@source '../views/layouts/trova.blade.php';
+@source '../views/components/trova';
+
+@import './trova/brand.css';
+@import './trova/globals.css';
+@import './trova/crm.css';
+@import './trova/workspace.css';
+@import './trova/website.css';
+@import './trova/trova.css';
+@import './trova/urban.css';
+@import './trova/context-guide.css';
+@import './trova/search-usability.css';
+@import './trova/prototype.css';
+@import './trova/home-revision.css';
+@import '../../node_modules/maplibre-gl/dist/maplibre-gl.css';
+@import './trova/reko-map-3d.css';
