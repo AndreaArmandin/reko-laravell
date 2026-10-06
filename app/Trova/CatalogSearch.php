@@ -3,13 +3,23 @@
 namespace App\Trova;
 
 use App\Models\Municipality;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 
 final class CatalogSearch
 {
-    public const SORTS = ['best', 'address', 'surface-asc', 'surface-desc'];
+    public const SORTS = ['best', 'address', 'surface-asc', 'surface-desc', 'distance'];
 
-    public const PAGE_SIZES = [10, 20];
+    public const PAGE_SIZES = [10, 25];
+
+    /** Radius in metres: inclusive bounds and step for the circle filter. */
+    public const RADIUS_MIN = 200;
+
+    public const RADIUS_MAX = 5000;
+
+    public const RADIUS_STEP = 50;
+
+    public const RADIUS_DEFAULT = 500;
 
     // Esegue la ricerca
     public function search(array $input): CatalogSearchResult
@@ -20,11 +30,23 @@ final class CatalogSearch
         $municipality = Municipality::query()->where('cadastral_code', $criteria['code'])->with('catalog')->first();
         $releaseId = $municipality?->catalog?->catalog_release_id;
 
-        if ($municipality === null || $releaseId === null) {
-            throw new SearchException('Seleziona un Comune con archivio disponibile.');
+        if ($municipality === null) {
+            throw new SearchException('Comune non disponibile.');
         }
 
-        return $this->query($criteria, $municipality->id, $releaseId);
+        if ($releaseId === null) {
+            throw new SearchException('Archivio del Comune in preparazione. Riprova tra poco.', retry: true);
+        }
+
+        // Errore del database: il dettaglio tecnico va nel log, l'utente legge solo di riprovare.
+        // La transazione (un savepoint, se ce n'è già una) evita che un errore blocchi le query successive.
+        try {
+            return DB::transaction(fn () => $this->query($criteria, $municipality->id, $releaseId));
+        } catch (QueryException $e) {
+            report($e);
+
+            throw new SearchException('Ricerca momentaneamente non disponibile. Riprova tra poco.', retry: true, previous: $e);
+        }
     }
 
     // Validazione dei dati di input
@@ -110,9 +132,14 @@ final class CatalogSearch
             $text[$key] = $value === null || trim($value) === '' ? null : self::cadastralId($value);
         }
 
+        $circle = self::circle($input['circle'] ?? null);
+
         $sort = $input['sort'] ?? 'surface-desc';
         if (! in_array($sort, self::SORTS, true)) {
             throw new SearchException('Ordinamento non valido.');
+        }
+        if ($sort === 'distance' && $circle === null) {
+            throw new SearchException('L\'ordinamento per distanza richiede un punto sulla mappa.');
         }
 
         $page = $input['page'] ?? 1;
@@ -137,10 +164,51 @@ final class CatalogSearch
             'section' => $text['section'],
             'sheet' => $text['sheet'],
             'parcel' => $text['parcel'],
+            'circle' => $circle,
             'sort' => $sort,
             'page' => $page,
             'pageSize' => $pageSize,
         ];
+    }
+
+    /**
+     * One search circle: lat/lng WGS84 and radius in metres (step 50, default 500).
+     *
+     * @return array{lat: float, lng: float, radius: int}|null
+     */
+    public static function circle(mixed $input): ?array
+    {
+        if ($input === null || $input === '') {
+            return null;
+        }
+
+        if (! is_array($input)) {
+            throw new SearchException('Punto di ricerca non valido.');
+        }
+
+        $lat = $input['lat'] ?? null;
+        $lng = $input['lng'] ?? null;
+        if (! is_numeric($lat) || ! is_numeric($lng) || ! is_finite((float) $lat) || ! is_finite((float) $lng)) {
+            throw new SearchException('Indica latitudine e longitudine del punto.');
+        }
+        $lat = (float) $lat;
+        $lng = (float) $lng;
+        if ($lat < -90 || $lat > 90 || $lng < -180 || $lng > 180) {
+            throw new SearchException('Coordinate fuori intervallo.');
+        }
+
+        $radius = $input['radius'] ?? self::RADIUS_DEFAULT;
+        if (is_string($radius) && is_numeric($radius)) {
+            $radius = (float) $radius;
+        }
+        if (is_float($radius) && floor($radius) === $radius) {
+            $radius = (int) $radius;
+        }
+        if (! is_int($radius) || $radius < self::RADIUS_MIN || $radius > self::RADIUS_MAX || $radius % self::RADIUS_STEP !== 0) {
+            throw new SearchException('Il raggio deve essere tra 200 e 5000 metri, a passi di 50.');
+        }
+
+        return ['lat' => $lat, 'lng' => $lng, 'radius' => $radius];
     }
 
     // Normalizza l'ID catastale
@@ -174,6 +242,7 @@ final class CatalogSearch
         $private = $c['segment'] === 'private';
         $garage = $private && $c['housing'] === 'garage';
         $scope = Categories::scopeGroups($c['segment'], $c['housing']) ?? [];
+        $circle = $c['circle'];
 
         $conditions = [
             'p.municipality_id = ?',
@@ -224,6 +293,21 @@ final class CatalogSearch
                 : '('.implode(' AND ', $limits).')';
         }
 
+        // Circle: parcels without a search point are excluded (EXISTS, not LEFT JOIN).
+        if ($circle !== null) {
+            $conditions[] = 'EXISTS (
+                SELECT 1 FROM parcel_search_points psp
+                WHERE psp.parcel_id = p.id
+                  AND psp.catalog_release_id = ?
+                  AND ST_DWithin(
+                      psp.location::geography,
+                      ST_SetSRID(ST_MakePoint(?, ?), 4326)::geography,
+                      ?
+                  )
+            )';
+            array_push($args, $releaseId, $circle['lng'], $circle['lat'], $circle['radius']);
+        }
+
         // Risultati privati: mostra l'indirizzo senza il piano; Business mantiene l'indirizzo completo.
         $address = $private
             ? "trim(CASE WHEN position(' PIANO ' in upper(m.address_raw)) > 0 THEN substr(m.address_raw, 1, position(' PIANO ' in upper(m.address_raw)) - 1) ELSE m.address_raw END)"
@@ -233,12 +317,25 @@ final class CatalogSearch
             ? "CASE WHEN m.consistency_unit = '".($garage ? 'm²' : 'vani')."' THEN m.consistency END"
             : 'NULL::numeric';
 
+        $tieBreak = "CASE WHEN trim(coalesce(address, '')) = '' THEN 1 ELSE 0 END, lower(address), section, sheet, number";
+
+        $distanceSelect = $circle === null
+            ? 'NULL::double precision AS distance_m'
+            : '(SELECT ST_Distance(
+                    psp.location::geography,
+                    ST_SetSRID(ST_MakePoint('.((float) $circle['lng']).', '.((float) $circle['lat']).'), 4326)::geography
+               )
+               FROM parcel_search_points psp
+               WHERE psp.parcel_id = m.parcel_id AND psp.catalog_release_id = '.((int) $releaseId).'
+              ) AS distance_m';
+
         $order = match ($c['sort']) {
             'best' => 'records DESC, ',
             'surface-asc' => 'min_value IS NULL, min_value ASC, ',
             'surface-desc' => 'max_value IS NULL, max_value DESC, ',
+            'distance' => 'distance_m ASC, ',
             default => '',
-        }."CASE WHEN trim(coalesce(address, '')) = '' THEN 1 ELSE 0 END, lower(address), section, sheet, number";
+        }.$tieBreak;
 
         $sql = 'WITH matched AS MATERIALIZED (
                 SELECT u.id unit_id, u.parcel_id, u.subalterno, p.section, p.sheet, p.number,
@@ -252,7 +349,8 @@ final class CatalogSearch
                     min(nullif('.$address.", '')) address,
                     min({$comparable}) min_value, max({$comparable}) max_value,
                     count(*) records, count(m.subalterno) identified,
-                    array_to_json(array_agg(DISTINCT m.category ORDER BY m.category)) categories
+                    array_to_json(array_agg(DISTINCT m.category ORDER BY m.category)) categories,
+                    {$distanceSelect}
                 FROM matched m GROUP BY m.parcel_id, m.section, m.sheet, m.number
             ), page AS (
                 SELECT * FROM selection ORDER BY {$order} LIMIT ? OFFSET ?

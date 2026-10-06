@@ -13,6 +13,7 @@ use RuntimeException;
  */
 class Postgis
 {
+    // Metodo per abilitare l'estensione PostGIS se manca
     public static function enable(): void
     {
         self::assertPgsql();
@@ -20,6 +21,7 @@ class Postgis
         DB::statement('CREATE EXTENSION IF NOT EXISTS postgis');
     }
 
+    // Metodo per aggiungere una colonna geometry a una tabella
     public static function addGeometry(string $table, string $column, string $type, int $srid = 4326): void
     {
         self::assertPgsql();
@@ -41,6 +43,7 @@ class Postgis
         ));
     }
 
+    // Metodo per aggiungere un indice GiST a una colonna geometry
     public static function gist(string $table, string $column): void
     {
         self::assertPgsql();
@@ -53,6 +56,22 @@ class Postgis
         ));
     }
 
+
+    // Crea l’indice sull’espressione colonna::geography, usata nella ricerca in metri.
+    public static function geographyGist(string $table, string $column): void
+    {
+        self::assertPgsql();
+
+        DB::statement(sprintf(
+            'CREATE INDEX %s ON %s USING GIST ((%s::geography))',
+            self::ident($table.'_'.$column.'_geog_gist'),
+            self::ident($table),
+            self::ident($column),
+        ));
+    }
+
+
+    // Crea un indice univoco sulla combinazione delle colonne specificate.
     public static function uniqueIndex(string $name, string $table, string $expression, ?string $where = null): void
     {
         self::assertPgsql();
@@ -71,6 +90,7 @@ class Postgis
         DB::statement($sql);
     }
 
+    // Aggiunge una restrizione CHECK alla tabella.
     public static function check(string $table, string $name, string $expression): void
     {
         self::assertPgsql();
@@ -83,6 +103,8 @@ class Postgis
         ));
     }
 
+
+    // Verifica che il driver sia PostgreSQL
     public static function assertPgsql(): void
     {
         $driver = DB::connection()->getDriverName();
@@ -92,6 +114,7 @@ class Postgis
         }
     }
 
+    // Formatta un nome di colonna come stringa SQL sicura
     private static function ident(string $name): string
     {
         if (! preg_match('/^[a-z_][a-z0-9_]*$/', $name)) {

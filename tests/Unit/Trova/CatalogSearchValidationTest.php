@@ -17,6 +17,7 @@ it('fills defaults for a minimal private search', function () use ($base) {
         'min' => 1.0,
         'max' => 10.0,
         'address' => '',
+        'circle' => null,
         'sort' => 'surface-desc',
         'page' => 1,
         'pageSize' => 10,
@@ -63,7 +64,8 @@ it('refuses invalid criteria with Trova messages', function (array $input, strin
     'mixed measures' => [['segment' => 'business', 'min' => 10], 'Per un intervallo scegli solo categorie in vani, solo categorie in m² oppure solo categorie in m³.'],
     'no measure' => [['segment' => 'business', 'businessType' => 'production', 'min' => 10], 'Per un intervallo scegli solo categorie in vani, solo categorie in m² oppure solo categorie in m³.'],
     'long filter' => [['address' => str_repeat('a', 201)], 'Filtro troppo lungo.'],
-    'unknown sort' => [['sort' => 'distance'], 'Ordinamento non valido.'],
+    'unknown sort' => [['sort' => 'popularity'], 'Ordinamento non valido.'],
+    'distance without point' => [['sort' => 'distance'], 'L\'ordinamento per distanza richiede un punto sulla mappa.'],
     'page zero' => [['page' => 0], 'Pagina non valida.'],
     'page as text' => [['page' => '2'], 'Pagina non valida.'],
     'page size' => [['pageSize' => 15], 'Numero di risultati per pagina non valido.'],
@@ -80,4 +82,32 @@ it('keeps the range optional when measures are mixed or missing', function () {
         ->and(CatalogSearch::requiredMeasure('business', null, ['C1'], []))->toBe('m²')
         ->and(CatalogSearch::requiredMeasure('business', null, ['C1', 'D'], []))->toBeNull()
         ->and(CatalogSearch::requiredMeasure('business', null, ['C1', 'D'], ['A/10']))->toBe('vani');
+});
+
+
+it('accepts a circle with default radius and distance sort', function () use ($base) {
+    $criteria = CatalogSearch::validate([
+        ...$base,
+        'circle' => ['lat' => 44.39, 'lng' => 7.55],
+        'sort' => 'distance',
+    ]);
+
+    expect($criteria['circle'])->toBe(['lat' => 44.39, 'lng' => 7.55, 'radius' => 500])
+        ->and($criteria['sort'])->toBe('distance');
+});
+
+it('normalizes circle radius and refuses invalid circles', function () use ($base) {
+    expect(CatalogSearch::validate([...$base, 'circle' => ['lat' => '44.4', 'lng' => '7.5', 'radius' => 1000]])['circle']['radius'])->toBe(1000)
+        ->and(CatalogSearch::validate([...$base, 'circle' => ['lat' => 44.4, 'lng' => 7.5, 'radius' => 500.0]])['circle']['radius'])->toBe(500);
+
+    expect(fn () => CatalogSearch::validate([...$base, 'circle' => ['lat' => 44.4]]))
+        ->toThrow(SearchException::class, 'Indica latitudine e longitudine del punto.')
+        ->and(fn () => CatalogSearch::validate([...$base, 'circle' => ['lat' => 91, 'lng' => 0]]))
+        ->toThrow(SearchException::class, 'Coordinate fuori intervallo.')
+        ->and(fn () => CatalogSearch::validate([...$base, 'circle' => ['lat' => 44.4, 'lng' => 7.5, 'radius' => 275]]))
+        ->toThrow(SearchException::class, 'Il raggio deve essere tra 200 e 5000 metri, a passi di 50.')
+        ->and(fn () => CatalogSearch::validate([...$base, 'circle' => ['lat' => 44.4, 'lng' => 7.5, 'radius' => 100]]))
+        ->toThrow(SearchException::class, 'Il raggio deve essere tra 200 e 5000 metri, a passi di 50.')
+        ->and(fn () => CatalogSearch::validate([...$base, 'circle' => 'near']))
+        ->toThrow(SearchException::class, 'Punto di ricerca non valido.');
 });

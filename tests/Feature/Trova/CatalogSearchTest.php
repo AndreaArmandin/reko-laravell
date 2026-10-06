@@ -105,7 +105,7 @@ function searchUnit(Parcel $parcel, CatalogRelease $release, ?string $sub, strin
  */
 function trovaSearch(array $input): CatalogSearchResult
 {
-    return (new CatalogSearch)->search(['code' => 'T001', 'pageSize' => 20, ...$input]);
+    return (new CatalogSearch)->search(['code' => 'T001', 'pageSize' => 25, ...$input]);
 }
 
 /**
@@ -216,9 +216,95 @@ it('pages results without overlaps', function () {
         ->and($pages[3]->total)->toBe(24); // a page past the end still reports the total
 });
 
-it('needs a municipality with an active catalogue', function () {
+it('tells an unknown municipality apart from an archive in preparation', function () {
     Municipality::query()->create(['cadastral_code' => 'T003', 'name' => 'Senza catalogo']);
 
-    expect(fn () => trovaSearch(['code' => 'T003', 'segment' => 'private', ...WIDE]))->toThrow(SearchException::class, 'Seleziona un Comune con archivio disponibile.')
-        ->and(fn () => trovaSearch(['code' => 'Z999', 'segment' => 'private', ...WIDE]))->toThrow(SearchException::class, 'Seleziona un Comune con archivio disponibile.');
+    expect(fn () => trovaSearch(['code' => 'Z999', 'segment' => 'private', ...WIDE]))->toThrow(SearchException::class, 'Comune non disponibile.');
+
+    try {
+        trovaSearch(['code' => 'T003', 'segment' => 'private', ...WIDE]);
+        $this->fail('An archive in preparation must not answer.');
+    } catch (SearchException $e) {
+        expect($e->getMessage())->toBe('Archivio del Comune in preparazione. Riprova tra poco.')
+            ->and($e->retry)->toBeTrue();
+    }
+});
+
+it('hides database errors behind a retry message', function () {
+    // PostgreSQL rolls this back with the test transaction
+    DB::statement('ALTER TABLE parcel_search_points RENAME TO parcel_search_points_broken');
+
+    try {
+        trovaSearch(['code' => 'T001', 'segment' => 'private', ...WIDE]);
+        $this->fail('A database error must become a retry message.');
+    } catch (SearchException $e) {
+        expect($e->getMessage())->toBe('Ricerca momentaneamente non disponibile. Riprova tra poco.')
+            ->and($e->retry)->toBeTrue()
+            ->and($e->getMessage())->not->toContain('SQLSTATE');
+    }
+});
+
+it('marks wrong criteria as not retryable', function () {
+    try {
+        trovaSearch(['code' => 'T001', 'segment' => 'private', 'min' => 5, 'max' => 3]);
+        $this->fail('Wrong criteria must be rejected.');
+    } catch (SearchException $e) {
+        expect($e->retry)->toBeFalse();
+    }
+});
+
+/*
+ * Radius search: points at known distances from (lng 7.55, lat 44.39).
+ * Approx: 1° lat ≈ 111_320 m; 1° lng ≈ 111_320 × cos(44.39°) ≈ 79_480 m.
+ *   Near   +100 m north  → inside 500 m
+ *   Mid    +400 m east   → inside 500 m, farther than Near
+ *   Far    +1000 m east  → outside 500 m, inside 2000 m
+ *   Romagna (sheet 1/20) has no search point → excluded when circle is active
+ */
+it('filters by circle radius and excludes parcels without a search point', function () {
+    $near = searchParcel($this->municipality, '80', '1', [7.55, 44.39 + 100 / 111_320]);
+    searchUnit($near, $this->release, '1', 'A/2', 5, 'VIA VICINO n. 1 Piano 1');
+
+    $mid = searchParcel($this->municipality, '80', '2', [7.55 + 400 / 79_480, 44.39]);
+    searchUnit($mid, $this->release, '1', 'A/2', 5, 'VIA MEDIA n. 1 Piano 1');
+
+    $far = searchParcel($this->municipality, '80', '3', [7.55 + 1000 / 79_480, 44.39]);
+    searchUnit($far, $this->release, '1', 'A/2', 5, 'VIA LONTANA n. 1 Piano 1');
+
+    $circle = ['lat' => 44.39, 'lng' => 7.55, 'radius' => 500];
+    $inside = trovaSearch(['segment' => 'private', 'circle' => $circle, 'sort' => 'distance', ...WIDE]);
+
+    // Existing Fg 1/10 is at the centre; Near (~100 m) and Mid (~400 m) are inside.
+    // Far (~1000 m), Romagna without a point, and others outside are excluded.
+    expect(parcelsOf($inside))->toBe(['1/10', '80/1', '80/2'])
+        ->and($inside->rows[0]['distance_m'])->toBeLessThan(1)
+        ->and($inside->rows[1]['distance_m'])->toEqualWithDelta(100, 5)
+        ->and($inside->rows[2]['distance_m'])->toEqualWithDelta(400, 10);
+
+    $wide = trovaSearch([
+        'segment' => 'private',
+        'circle' => ['lat' => 44.39, 'lng' => 7.55, 'radius' => 2000],
+        'sort' => 'distance',
+        ...WIDE,
+    ]);
+    expect(parcelsOf($wide))->toContain('80/3')
+        ->and(parcelsOf($wide))->not->toContain('1/20'); // still no search point
+});
+
+it('sorts by distance then address, sheet and parcel', function () {
+    // Two parcels at the same distance (~300 m east), different addresses: tie-break by address.
+    $a = searchParcel($this->municipality, '90', '2', [7.55 + 300 / 79_480, 44.39]);
+    searchUnit($a, $this->release, '1', 'A/2', 5, 'VIA ZETA n. 1 Piano 1');
+    $b = searchParcel($this->municipality, '90', '1', [7.55 + 300 / 79_480, 44.39]);
+    searchUnit($b, $this->release, '1', 'A/2', 5, 'VIA ALFA n. 1 Piano 1');
+
+    $rows = trovaSearch([
+        'segment' => 'private',
+        'sheet' => '90',
+        'circle' => ['lat' => 44.39, 'lng' => 7.55, 'radius' => 500],
+        'sort' => 'distance',
+        ...WIDE,
+    ]);
+
+    expect(parcelsOf($rows))->toBe(['90/1', '90/2']); // same distance → address Alfa before Zeta
 });

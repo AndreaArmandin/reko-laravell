@@ -126,3 +126,24 @@ it('links agency requests to a real agency and keeps retries idempotent', functi
     expect(fn () => DB::transaction(fn () => AgencyRequestAttachment::query()->create([...$file, 'upload_id' => 'upload-0002', 'mime_type' => 'text/html'])))->toThrow(QueryException::class);
     expect(fn () => DB::transaction(fn () => AgencyRequestAttachment::query()->create([...$file, 'upload_id' => 'upload-0003', 'byte_size' => 10_000_001])))->toThrow(QueryException::class);
 });
+
+
+it('indexes parcel search points as geography for radius search', function () {
+    $indexes = collect(DB::select(
+        "select indexname, indexdef from pg_indexes where tablename = 'parcel_search_points'"
+    ))->keyBy('indexname');
+
+    expect($indexes->has('parcel_search_points_location_geog_gist'))->toBeTrue()
+        ->and($indexes['parcel_search_points_location_geog_gist']->indexdef)->toContain('geography')
+        ->and($indexes->has('parcel_search_points_location_gist'))->toBeFalse();
+
+    $filter = collect(DB::select(
+        "select indexname from pg_indexes where indexname in (
+            'cadastral_unit_versions_release_status_group_index',
+            'cadastral_units_parcel_id_index'
+        )"
+    ))->pluck('indexname');
+
+    expect($filter)->toContain('cadastral_unit_versions_release_status_group_index')
+        ->and($filter)->toContain('cadastral_units_parcel_id_index');
+});
