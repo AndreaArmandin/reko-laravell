@@ -1,0 +1,27 @@
+Dati INVENTATI per provare l'importer del catalogo. Comune fittizio: Borgo Prova, codice X900.
+
+Prova in /admin/catalog (serve composer dev, oppure php artisan queue:work):
+
+1. Passo 1 - file SISTER
+   Codice: X900   Nome: Borgo Prova   File: sister-borgo-prova.txt
+   Atteso: 1535 unità, 3 righe scartate e 2 ripetute (gli avvisi sono voluti: una riga con poche
+   colonne, un subalterno 0 e una riga che non è un dato). Compaiono anche unità escluse
+   (soppresse, bene comune non censibile, senza categoria) e unità senza subalterno.
+
+2. Passo 2 - sagome delle particelle, sulla bozza
+   File: particelle-foglio-numero.geojson   Proprietà del foglio: FOGLIO   della particella: NUMERO
+   Atteso: 300 particelle collocate su 300; 3 sagome ignorate (foglio 99) e 1 senza riferimento.
+   In alternativa particelle-riferimento-nazionale.geojson con le proprietà lasciate vuote
+   (usa NATIONALCADASTALREFERENCE, come i file dell'Agenzia delle Entrate).
+
+3. Premi "Pubblica": poi in /trova scegli "Borgo Prova" e cerca (raggio sulla mappa, abitazioni, box...).
+
+4. Nuova edizione: sister-borgo-prova-aggiornamento.txt (stesso codice X900).
+   Atteso nella bozza: 10 nuove, 7 variate, 1514 invariate, 14 non più presenti; le 300 posizioni
+   restano, le 5 particelle nuove (foglio 6, n. 51-55) no, finché non carichi
+   particelle-nuove-aggiornamento.geojson. Poi "Pubblica": la vecchia edizione resta archiviata.
+
+5. Quartieri (pagina Zone di ricerca): quartieri-borgo-prova.geojson, Comune Borgo Prova.
+   Poi in /trova, passo zona, scegli "Quartiere".
+
+Il Comune si trova vicino a Cuneo (44.397, 7.556) per far vedere la mappa. Nessun dato è reale.

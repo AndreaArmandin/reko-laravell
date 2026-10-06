@@ -29,6 +29,10 @@
                 @if (auth()->user()->is_admin)
                     <flux:sidebar.item icon="building-office" :href="route('admin.agencies.index')"
                         :current="request()->routeIs('admin.agencies.*')" wire:navigate>Agenzie</flux:sidebar.item>
+                    <flux:sidebar.item icon="archive-box" :href="route('admin.catalog.index')"
+                        :current="request()->routeIs('admin.catalog.*')" wire:navigate>Catalogo</flux:sidebar.item>
+                    <flux:sidebar.item icon="map" :href="route('admin.zones.index')"
+                        :current="request()->routeIs('admin.zones.*')" wire:navigate>Zone di ricerca</flux:sidebar.item>
                 @endif
             </flux:sidebar.group>
         </flux:sidebar.nav>
