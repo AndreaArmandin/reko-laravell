@@ -5,6 +5,7 @@ namespace App\Gestionale\Actions\Properties;
 use App\Gestionale\Audit;
 use App\Gestionale\CommandRejected;
 use App\Gestionale\Commands;
+use App\Gestionale\Properties\PropertyMatcher;
 use App\Models\AgencyMembership;
 use App\Models\CadastralUnit;
 use App\Models\Property;
@@ -41,6 +42,10 @@ final class SaveProperty
         }
         $mandate = is_array($input['mandate'] ?? null) ? $input['mandate'] : ($property?->mandate ?? []);
         $publication = is_array($input['publication'] ?? null) ? $input['publication'] : ($property?->publication ?? []);
+        $url = $publication['url'] ?? null;
+        if ($url !== null && $url !== '' && (! is_string($url) || ! preg_match('#^https?://[^\s]+$#i', $url) || mb_strlen($url) > 2000)) {
+            throw new CommandRejected('Il link dell’annuncio deve iniziare con http:// o https://.', 400, 'publication.url');
+        }
         // These JSONB columns are maps (objects), so an empty PHP list must not
         // be encoded as the JSON array [] and rejected by the database check.
         $mandate = $mandate === [] ? (object) [] : $mandate;
@@ -66,6 +71,8 @@ final class SaveProperty
             throw new CommandRejected('Scegli un referente attivo dell’agenzia.', 400, 'agent_user_id');
         }
 
+        // Without the key the existing links stay as they are (editing a property must not wipe them)
+        $replaceUnits = $property === null || array_key_exists('cadastral_unit_ids', $input);
         $unitIds = $input['cadastral_unit_ids'] ?? [];
         if (! is_array($unitIds) || count($unitIds) > 100 || count(array_unique(array_map('intval', $unitIds))) !== count($unitIds)) {
             throw new CommandRejected('Seleziona unità catastali valide.', 400, 'cadastral_unit_ids');
@@ -90,7 +97,7 @@ final class SaveProperty
             throw new CommandRejected('Possibile immobile duplicato: indirizzo, civico e contratto già presenti. Verifica la scheda o conferma che si tratta di un immobile distinto.', 409, 'confirm_duplicate');
         }
 
-        return DB::transaction(function () use ($actor, $input, $property, $title, $address, $city, $features, $mandate, $publication, $status, $agentId, $unitIds) {
+        return DB::transaction(function () use ($actor, $input, $property, $title, $address, $city, $features, $mandate, $publication, $status, $agentId, $unitIds, $replaceUnits) {
             $before = $property?->only(['title', 'status', 'address', 'civic', 'asking_price', 'features', 'description', 'strengths', 'internal_notes']);
             $property ??= new Property;
             $property->fill([
@@ -126,13 +133,15 @@ final class SaveProperty
                 DB::statement('UPDATE properties SET location = ST_SetSRID(ST_MakePoint(?, ?), 4326) WHERE agency_id = ? AND id = ?', [$lng, $lat, $actor->agency_id, $property->id]);
             }
 
-            PropertyUnit::query()->where('property_id', $property->id)->delete();
-            foreach ($unitIds as $unitId) {
-                $link = new PropertyUnit;
-                $link->forceFill(['agency_id' => $actor->agency_id, 'property_id' => $property->id, 'cadastral_unit_id' => $unitId])->save();
+            if ($replaceUnits) {
+                PropertyUnit::query()->where('property_id', $property->id)->delete();
+                foreach ($unitIds as $unitId) {
+                    $link = new PropertyUnit;
+                    $link->forceFill(['agency_id' => $actor->agency_id, 'property_id' => $property->id, 'cadastral_unit_id' => $unitId])->save();
+                }
             }
 
-            app(\App\Gestionale\Properties\PropertyMatcher::class)->refreshProperty($property);
+            app(PropertyMatcher::class)->refreshProperty($property);
 
             $this->audit->record('property.save', $property, [
                 'before' => $before,

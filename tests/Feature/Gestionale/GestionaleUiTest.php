@@ -70,30 +70,30 @@ describe('entry points', function () {
         $this->post(route('gestionale.enter', $this->crm->agency_id))->assertRedirect(route('gestionale.choose'));
     });
 
-    it('links the dashboard agencies into the gestionale', function () {
+    it('shows the user agency and links into the gestionale from the account dashboard', function () {
         $this->actingAs($this->crm->user)->get(route('dashboard'))->assertOk()
-            ->assertSee(route('gestionale.enter', $this->crm->agency_id), false)->assertSee('Apri il gestionale');
+            ->assertSee(route('gestionale.enter', $this->crm->agency_id), false)->assertSee($this->crm->agency->name);
     });
 });
 
 describe('navigation', function () {
-    it('shows the old gestionale sections per role, with Italian labels', function () {
+    it('shows the current gestionale sections per role, with Italian labels', function () {
         $labels = fn (AgencyMembership $m) => array_column(Navigation::items($m), 'label');
 
-        expect($labels($this->admin))->toBe(['Oggi', 'Zona di ricerca', 'Proprietari', 'Immobili a portafoglio', 'Clienti', 'Ricerche dei clienti', 'Agenda', 'Obiettivi', 'Impostazioni'])
-            ->and($labels($this->crm))->toBe(['Oggi', 'Immobili a portafoglio', 'Clienti', 'Ricerche dei clienti', 'Agenda', 'Obiettivi'])
-            ->and($labels($this->scout))->toBe(['Oggi', 'Zona di ricerca', 'Proprietari', 'Agenda', 'Obiettivi'])
+        expect($labels($this->admin))->toBe(['Oggi', 'Mappa e zone', 'Archivio catastale', 'Immobili a portafoglio', 'Clienti', 'Richieste', 'Agenda', 'Obiettivi', 'Impostazioni'])
+            ->and($labels($this->crm))->toBe(['Oggi', 'Immobili a portafoglio', 'Clienti', 'Richieste', 'Agenda', 'Obiettivi'])
+            ->and($labels($this->scout))->toBe(['Oggi', 'Mappa e zone', 'Archivio catastale', 'Agenda', 'Obiettivi'])
             ->and(Navigation::sectionsFor($this->crm))->toContain('Investitori')
             ->and(Navigation::sectionsFor($this->scout))->not->toContain('Clienti', 'Investitori', 'Richieste');
     });
 
     it('renders the sidebar and placeholders only for allowed sections', function () {
         $this->actingAs($this->scout->user)->get(route('gestionale.home'))->assertOk()
-            ->assertSee('Zona di ricerca')->assertDontSee('Ricerche dei clienti');
-        $this->get(route('gestionale.section', 'zona-di-ricerca'))->assertOk()->assertSee('prossime fasi');
+            ->assertSee('Mappa e zone')->assertDontSee('Ricerche dei clienti');
+        $this->get(route('gestionale.section', 'mappa-e-zone'))->assertOk()->assertSee('prossime fasi');
         $this->get(route('gestionale.section', 'impostazioni'))->assertNotFound();
 
-        $this->actingAs($this->crm->user)->get(route('gestionale.section', 'proprietari'))->assertNotFound();
+        $this->actingAs($this->crm->user)->get(route('gestionale.section', 'archivio-catastale'))->assertNotFound();
         $this->actingAs($this->admin->user)->get(route('gestionale.section', 'impostazioni'))->assertOk();
     });
 });

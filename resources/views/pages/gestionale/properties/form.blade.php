@@ -90,7 +90,7 @@ new #[Layout('layouts::gestionale')] class extends Component {
         if ($this->property) $this->authorize('update', $this->property);
         else $this->authorize('create', Property::class);
 
-        $saved = $this->command(fn () => app(SaveProperty::class)->handle($this->actor(), [
+        $input = [
             'agent_user_id' => $this->agent_user_id, 'municipality_id' => $this->municipality_id,
             'title' => $this->title, 'address' => $this->address, 'civic' => $this->civic, 'city' => $this->city,
             'province' => $this->province, 'postal_code' => $this->postal_code, 'zone' => $this->zone, 'status' => $this->status,
@@ -99,7 +99,13 @@ new #[Layout('layouts::gestionale')] class extends Component {
             'description' => $this->description, 'strengths' => $this->strengths, 'internal_notes' => $this->internal_notes,
             'latitude' => $this->latitude, 'longitude' => $this->longitude,
             'confirm_duplicate' => $this->confirm_duplicate, 'reason' => $this->reason,
-        ], $this->property), 'Scheda immobile salvata.');
+        ];
+        // The form does not edit the links of an existing property: leave them untouched
+        if ($this->property) {
+            unset($input['cadastral_unit_ids']);
+        }
+
+        $saved = $this->command(fn () => app(SaveProperty::class)->handle($this->actor(), $input, $this->property), 'Scheda immobile salvata.');
 
         if ($saved) return $this->redirectRoute('gestionale.properties.show', $saved, navigate: true);
     }

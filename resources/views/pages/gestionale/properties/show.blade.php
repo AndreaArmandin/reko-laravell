@@ -74,7 +74,7 @@ new #[Layout('layouts::gestionale')] class extends Component {
             <flux:text size="sm">Dal {{ $property->mandate['start'] ?? '—' }} al {{ $property->mandate['end'] ?? '—' }}</flux:text>
             <flux:heading size="lg" class="mt-4">Pubblicazione</flux:heading>
             <flux:text>{{ $property->publication['status'] ?? 'Non pubblicato' }}</flux:text>
-            @if (! empty($property->publication['url']))<flux:link :href="$property->publication['url']" target="_blank" rel="noopener noreferrer">Apri annuncio</flux:link>@endif
+            @if (! empty($property->publication['url']) && preg_match('#^https?://#i', (string) $property->publication['url']))<flux:link :href="$property->publication['url']" target="_blank" rel="noopener noreferrer">Apri annuncio</flux:link>@endif
             <flux:callout variant="secondary"><flux:callout.text>Le azioni del Gestionale non pubblicano automaticamente sui portali.</flux:callout.text></flux:callout>
         </flux:card>
     </div>

@@ -16,11 +16,13 @@ final class SetPropertyLifecycle
     public function handle(AgencyMembership $actor, Property $property, string $mode): Property
     {
         if (! $actor->isActive() || (int) $actor->agency_id !== (int) $property->agency_id
-            || ! in_array($actor->role, ['admin', 'crm', 'scout'], true)
+            || ! in_array($actor->role, ['admin', 'crm'], true)
             || ($actor->role === 'crm' && (int) $property->agent_user_id !== (int) $actor->user_id)) {
             throw new CommandRejected('Immobile non accessibile con questo ruolo.', 403);
         }
-        if (! in_array($mode, ['archive', 'restore'], true)) throw new CommandRejected('Operazione non valida.', 400);
+        if (! in_array($mode, ['archive', 'restore'], true)) {
+            throw new CommandRejected('Operazione non valida.', 400);
+        }
 
         return DB::transaction(function () use ($actor, $property, $mode) {
             $before = $property->lifecycle_state;
@@ -29,6 +31,7 @@ final class SetPropertyLifecycle
                 : ['lifecycle_state' => 'archived', 'lifecycle_at' => now(), 'lifecycle_by_user_id' => $actor->user_id, 'lifecycle_reason' => 'Archiviazione reversibile'])->save();
             $this->matcher->refreshProperty($property);
             $this->audit->record('property.lifecycle', $property, ['mode' => $mode, 'before' => $before, 'after' => $property->lifecycle_state]);
+
             return $property->refresh();
         });
     }

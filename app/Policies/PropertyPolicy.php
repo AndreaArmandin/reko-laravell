@@ -13,7 +13,8 @@ class PropertyPolicy
 
     public function viewAny(User $user): bool
     {
-        return in_array($this->membership($user)?->role, ['admin', 'crm', 'scout'], true);
+        // Operatore 1 (scout) non ha la sezione Immobili a portafoglio: engine.ts:58 gli svuota l'elenco, engine.ts:111 blocca property.*
+        return in_array($this->membership($user)?->role, ['admin', 'crm'], true);
     }
 
     public function view(User $user, Property $property): bool
@@ -26,9 +27,6 @@ class PropertyPolicy
         return match ($membership->role) {
             'admin' => true,
             'crm' => (int) $property->agent_user_id === (int) $membership->user_id,
-            'scout' => (int) $property->agent_user_id === (int) $membership->user_id
-                || (int) $property->acquired_by_user_id === (int) $membership->user_id
-                || in_array((int) $membership->user_id, array_map('intval', $property->assigned_scout_user_ids ?? []), true),
             default => false,
         };
     }
@@ -41,13 +39,8 @@ class PropertyPolicy
     public function update(User $user, Property $property): bool
     {
         $membership = $this->membership($user);
-        return $this->view($user, $property) && in_array($membership?->role, ['admin', 'crm'], true)
-            && $property->lifecycle_state !== 'removed';
-    }
 
-    public function updateScoutPrice(User $user, Property $property): bool
-    {
-        return $this->view($user, $property) && $this->membership($user)?->role === 'scout'
+        return $this->view($user, $property) && in_array($membership?->role, ['admin', 'crm'], true)
             && $property->lifecycle_state !== 'removed';
     }
 

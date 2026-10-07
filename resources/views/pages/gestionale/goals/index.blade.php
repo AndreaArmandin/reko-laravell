@@ -11,13 +11,19 @@ use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
 use Livewire\Component;
 
-new #[Layout('layouts::gestionale'), Title('Obiettivi')] class extends Component {
+new #[Layout('layouts::gestionale'), Title('Obiettivi')] class extends Component
+{
     public array $targets = [];
+
+    #[Computed]
+    public function membership()
+    {
+        return app(CurrentAgency::class)->membership() ?? abort(403, 'Nessuna agenzia attiva per questo account.');
+    }
 
     public function mount(): void
     {
-        $membership = app(CurrentAgency::class)->membership();
-        $this->seedInitialGoals((int) $membership->agency_id);
+        $this->seedInitialGoals((int) $this->membership->agency_id);
     }
 
     private function seedInitialGoals(int $agencyId): void
@@ -29,7 +35,9 @@ new #[Layout('layouts::gestionale'), Title('Obiettivi')] class extends Component
         DB::transaction(function () use ($agencyId, $defaults) {
             foreach ($defaults as $row) {
                 $goal = Goal::query()->firstOrCreate(['agency_id' => $agencyId, 'key' => $row['key']], ['read_only' => true]);
-                if (! $goal->versions()->exists()) GoalVersion::query()->create(['agency_id' => $agencyId, 'goal_id' => $goal->id, 'version' => 1, 'effective_from' => today(), 'definition' => $row['definition'], 'reason' => 'Obiettivo iniziale del Gestionale']);
+                if (! $goal->versions()->exists()) {
+                    GoalVersion::query()->create(['agency_id' => $agencyId, 'goal_id' => $goal->id, 'version' => 1, 'effective_from' => today(), 'definition' => $row['definition'], 'reason' => 'Obiettivo iniziale del Gestionale']);
+                }
             }
         });
     }
@@ -37,8 +45,9 @@ new #[Layout('layouts::gestionale'), Title('Obiettivi')] class extends Component
     #[Computed]
     public function goals()
     {
-        $membership = app(CurrentAgency::class)->membership();
+        $membership = $this->membership;
         $day = today()->toDateString();
+
         return Goal::query()->where('agency_id', $membership->agency_id)->with(['versions' => fn ($q) => $q->where('effective_from', '<=', $day)->orderByDesc('effective_from')->orderByDesc('version')])->get()
             ->filter(fn ($goal) => $goal->versions->isNotEmpty())
             ->filter(fn ($goal) => $membership->role === 'admin' || in_array($membership->role, $goal->versions->first()->definition['roles'] ?? [], true))
@@ -53,20 +62,23 @@ new #[Layout('layouts::gestionale'), Title('Obiettivi')] class extends Component
                     default => $day,
                 };
                 $value = (float) GoalLedger::query()->where('agency_id', $goal->agency_id)->where('goal_id', $goal->id)->where('period_start', $start)->sum('value');
+
                 return ['goal' => $goal, 'version' => $version, 'definition' => $definition, 'start' => $start, 'value' => $value];
             })->values();
     }
 
     public function saveTargets(): void
     {
-        $membership = app(CurrentAgency::class)->membership();
+        $membership = $this->membership;
         abort_unless($membership?->isAdmin(), 403);
         $this->validate(['targets' => ['required', 'array'], 'targets.*' => ['required', 'numeric', 'min:1', 'max:1000000']]);
         DB::transaction(function () use ($membership) {
             foreach ($this->targets as $goalId => $target) {
                 $goal = Goal::query()->where('agency_id', $membership->agency_id)->with('versions')->findOrFail((int) $goalId);
                 $current = $goal->versions->first();
-                if (! $current || $goal->read_only) continue;
+                if (! $current || $goal->read_only) {
+                    continue;
+                }
                 $definition = $current->definition;
                 $definition['target'] = (float) $target;
                 GoalVersion::query()->create(['agency_id' => $membership->agency_id, 'goal_id' => $goal->id, 'version' => (int) $goal->versions->max('version') + 1, 'effective_from' => today(), 'definition' => $definition, 'author_user_id' => $membership->user_id, 'reason' => 'Revisione del target']);

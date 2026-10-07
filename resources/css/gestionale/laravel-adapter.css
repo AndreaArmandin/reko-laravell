@@ -25,13 +25,13 @@ body:has(.crm-app) { background: var(--ui-bg); color: var(--ui-ink); font-family
 .crm-sidebar .reko-brand-logo img { display: block; width: 100%; height: auto; }
 .crm-navigation { display: grid; gap: 14px; }
 .crm-navigation-group { display: grid; gap: 4px; }
-.crm-navigation-group > p { margin: 8px 12px; color: var(--ui-muted); font-size: .78rem; font-weight: 700; letter-spacing: .11em; text-transform: uppercase; }
+.crm-navigation-group > p { margin: 8px 12px; color: var(--ui-muted); font-size: 1.125rem; font-weight: 700; letter-spacing: .11em; text-transform: uppercase; }
 .crm-sidebar .crm-navigation-group > a,
-.crm-mobile-nav-panel .crm-navigation-group > a { display: flex; min-height: 45px; align-items: center; gap: 11px; padding: 10px 11px; border-radius: 8px; color: var(--ui-muted); font-size: .94rem; line-height: 1.3; text-decoration: none; }
+.crm-mobile-nav-panel .crm-navigation-group > a { display: flex; min-height: 46px; align-items: center; gap: 11px; padding: 10px 11px; border-radius: 8px; color: var(--ui-muted); font-size: 1.125rem; line-height: 1.4; text-decoration: none; }
 .crm-sidebar .crm-navigation-group > a:hover,
 .crm-mobile-nav-panel .crm-navigation-group > a:hover { background: var(--ui-soft); }
 .crm-sidebar .crm-navigation-group > a[aria-current],
-.crm-mobile-nav-panel .crm-navigation-group > a[aria-current] { background: var(--ui-primary); color: var(--ui-ink); font-weight: 750; box-shadow: inset 4px 0 #fff; }
+.crm-mobile-nav-panel .crm-navigation-group > a[aria-current] { background: var(--ui-primary); color: var(--ui-ink); font-weight: 750; }
 .crm-sidebar .crm-navigation-group > a[aria-current] svg,
 .crm-mobile-nav-panel .crm-navigation-group > a[aria-current] svg { color: var(--ui-ink); }
 .crm-sidebar-footer > p { margin: 0; }
@@ -40,12 +40,14 @@ body:has(.crm-app) { background: var(--ui-bg); color: var(--ui-ink); font-family
 .crm-sidebar-footer [data-flux-user-menu] { margin-top: 8px; }
 .crm-topbar { position: sticky; top: 0; z-index: 650; }
 .crm-topbar .crm-user-switch { min-width: 0; max-width: 300px; }
+.crm-topbar .crm-user-switch > span { font-size: 1rem; }
 .crm-topbar .crm-user-switch strong { font-size: .93rem; font-weight: 700; }
 .crm-topbar .crm-user-switch select { width: 100%; max-width: 250px; }
 .crm-mobile-nav { display: none; }
 .crm-demo-strip { min-height: 42px; }
 .crm-main > :first-child { min-width: 0; }
 .crm-main > div.flex.flex-col.gap-6 { gap: 1.25rem; }
+.crm-app .crm-request-search { flex: 1 1 260px; max-width: 380px; }
 .crm-app [data-flux-card] { border: 1px solid var(--ui-line); border-radius: 14px; background: var(--ui-surface); box-shadow: 0 4px 18px -14px #10232124; }
 .crm-app [data-flux-heading] { color: var(--ui-ink); font-family: var(--ui-font); font-weight: 750; letter-spacing: -.035em; }
 .crm-app [data-flux-text] { color: var(--ui-ink); font-family: var(--ui-font); }

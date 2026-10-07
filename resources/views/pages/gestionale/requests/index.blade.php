@@ -20,7 +20,8 @@ use Livewire\WithPagination;
  * prima le richieste aggiornate più di recente; archiviate e rimosse in una sezione a parte.
  * I filtri degli abbinamenti (compatibili, attesa, visite, trattativa) arrivano con la fase Matching.
  */
-new #[Layout('layouts::gestionale'), Title('Ricerche dei clienti')] class extends Component {
+new #[Layout('layouts::gestionale'), Title('Ricerche dei clienti')] class extends Component
+{
     use HandlesCommands, WithPagination;
 
     #[Url(as: 'stato')]
@@ -116,64 +117,67 @@ new #[Layout('layouts::gestionale'), Title('Ricerche dei clienti')] class extend
 <div class="flex flex-col gap-6">
     <div class="crm-page-head">
         <div>
-            <flux:text size="sm">Ricerche dei clienti</flux:text>
-            <flux:heading size="xl" level="1">Richieste</flux:heading>
-            <flux:text class="mt-1">Clienti, esigenze e immobili compatibili.</flux:text>
+            <p class="proto-eyebrow">Ricerche dei clienti</p>
+            <h1>Richieste</h1>
+            <p class="crm-muted">Clienti, esigenze e immobili compatibili.</p>
         </div>
         @can('create', App\Models\PropertyRequest::class)
-            <flux:button variant="primary" icon="plus" :href="route('gestionale.requests.create')" wire:navigate>Nuova richiesta</flux:button>
+            <a class="crm-btn" href="{{ route('gestionale.requests.create') }}" wire:navigate><flux:icon name="plus" class="size-4" />Nuova richiesta</a>
         @endcan
     </div>
 
-    <div class="flex flex-wrap items-end gap-3">
-        <div class="w-56">
-            <flux:select wire:model.live="status" label="Stato">
-                <flux:select.option value="">Tutte</flux:select.option>
-                @foreach (App\Models\PropertyRequest::STATUSES as $s)
-                    <flux:select.option :value="$s">{{ $s }}</flux:select.option>
-                @endforeach
-            </flux:select>
-        </div>
-        <div class="w-56">
-            <flux:select wire:model.live="client" label="Cliente">
-                <flux:select.option value="">Tutti</flux:select.option>
-                @foreach ($this->clients as $c)
-                    <flux:select.option :value="$c->id">{{ $c->display_name }}</flux:select.option>
-                @endforeach
-            </flux:select>
-        </div>
-        <div class="w-full max-w-sm">
-            <flux:input wire:model.live.debounce.300ms="search" icon="magnifying-glass" label="Cerca" placeholder="Titolo o nome del cliente" />
-        </div>
+    <div class="crm-toolbar">
+        <label class="crm-field"><span>Stato</span><select wire:model.live="status">
+            <option value="">Tutte</option>
+            @foreach (App\Models\PropertyRequest::STATUSES as $s)
+                <option value="{{ $s }}">{{ $s }}</option>
+            @endforeach
+        </select></label>
+        <label class="crm-field"><span>Cliente</span><select wire:model.live="client">
+            <option value="">Tutti</option>
+            @foreach ($this->clients as $c)
+                <option value="{{ $c->id }}">{{ $c->display_name }}</option>
+            @endforeach
+        </select></label>
+        <label class="crm-field crm-request-search"><span>Cerca</span><input wire:model.live.debounce.300ms="search" placeholder="Titolo o nome del cliente" /></label>
+        <span>{{ $this->requests->total() }} {{ $this->requests->total() === 1 ? 'richiesta' : 'richieste' }}</span>
+        @if ($status !== '' || $client !== '' || $search !== '' || $filter !== '')
+            <button class="crm-link" type="button" wire:click="clearFilters">Azzera filtri</button>
+        @endif
     </div>
 
     <div class="flex items-center gap-3">
         @if ($filter === 'incomplete')
-            <flux:badge>Da completare</flux:badge>
+            <span class="crm-pill">Da completare</span>
             <flux:link as="button" wire:click="$set('filter', '')">Rimuovi filtro</flux:link>
         @endif
-        @if ($status !== '' || $client !== '' || $search !== '' || $filter !== '')
-            <flux:link as="button" wire:click="clearFilters">Azzera filtri</flux:link>
-        @endif
-        <flux:text size="sm">Prima le richieste aggiornate più di recente.</flux:text>
     </div>
+    <p class="crm-muted">Prima le richieste aggiornate più di recente.</p>
 
-    <div class="divide-y divide-zinc-200 rounded-xl border border-zinc-200 bg-white">
+    <section class="crm-panel crm-request-list">
         @forelse ($this->requests as $request)
             @php($progress = App\Gestionale\Questionnaire\ProfileFlow::baseCompleteness($this->questionnaire, $request->criteria))
-            <div class="flex flex-wrap items-center gap-4 p-4" wire:key="r-{{ $request->id }}">
-                <flux:avatar :name="$request->contact->display_name" size="sm" />
-                <div class="min-w-48 flex-1">
-                    <flux:link :href="route('gestionale.requests.show', $request)" wire:navigate class="font-medium">{{ $request->title }}</flux:link>
-                    <flux:text size="sm">{{ $request->contact->display_name }}@if ($s = $this->summary($request)) · {{ $s }}@endif</flux:text>
-                </div>
-                <flux:badge size="sm">{{ $request->status }}</flux:badge>
-                <flux:text size="sm" class="w-16 text-end">{{ $progress['answered'] }}/{{ $progress['total'] }}</flux:text>
-            </div>
+            @php($initials = collect(preg_split('/\s+/', trim($request->contact->display_name)))->filter()->take(2)->map(fn ($part) => mb_strtoupper(mb_substr($part, 0, 1)))->implode(''))
+            @php($avatarTone = abs(crc32((string) $request->contact_id)) % 5)
+            <article wire:key="r-{{ $request->id }}">
+                <a class="crm-record-row crm-request-row" href="{{ route('gestionale.requests.show', $request) }}" wire:navigate>
+                    <span aria-hidden="true" class="crm-avatar crm-avatar--{{ $avatarTone }}">{{ $initials }}</span>
+                    <span class="crm-grow">
+                        <strong>{{ $request->title }}</strong>
+                        <small>{{ $request->contact->display_name }}</small>
+                        @if ($summary = $this->summary($request))<small>{{ $summary }}</small>@endif
+                    </span>
+                    <span class="crm-row-tail">
+                        <span class="crm-pill">{{ $request->status }}</span>
+                        <span class="crm-answer-progress"><span>{{ $progress['answered'] }}/{{ $progress['total'] }} risposte del percorso base</span><progress max="{{ max(1, $progress['total']) }}" value="{{ min($progress['answered'], $progress['total']) }}" aria-label="Risposte completate"></progress></span>
+                    </span>
+                    <flux:icon name="arrow-up-right" class="size-4" aria-hidden="true" />
+                </a>
+            </article>
         @empty
-            <div class="p-6"><flux:text>Nessuna richiesta con questi filtri.</flux:text></div>
+            <div class="crm-empty">Nessuna richiesta con questi filtri. Puoi rimuoverli o creare una nuova richiesta.</div>
         @endforelse
-    </div>
+    </section>
 
     {{ $this->requests->links() }}
 

@@ -5,6 +5,7 @@ use App\Gestionale\CurrentAgency;
 use App\Models\Activity;
 use App\Models\Contact;
 use App\Models\Property;
+use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Layout;
@@ -12,19 +13,39 @@ use Livewire\Attributes\Title;
 use Livewire\Component;
 use Livewire\WithPagination;
 
-new #[Layout('layouts::gestionale'), Title('Agenda')] class extends Component {
+new #[Layout('layouts::gestionale'), Title('Agenda')] class extends Component
+{
     use WithPagination;
 
     public string $filter = 'aperte';
+
+    public string $view = 'Settimana';
+
+    public string $agendaDate = '';
+
+    public string $typeFilter = 'Tutte';
+
+    public string $assignmentFilter = 'Tutte';
+
+    public string $search = '';
+
     public string $kind = 'Chiamata';
+
     public string $subject = '';
+
     public string $scheduledAt = '';
+
     public string $notes = '';
+
     public ?int $contactId = null;
+
     public ?int $propertyId = null;
 
     #[Computed]
-    public function membership() { return app(CurrentAgency::class)->membership(); }
+    public function membership()
+    {
+        return app(CurrentAgency::class)->membership();
+    }
 
     #[Computed]
     public function activities()
@@ -48,9 +69,57 @@ new #[Layout('layouts::gestionale'), Title('Agenda')] class extends Component {
                 }
             });
         }
-        if ($this->filter === 'aperte') $query->whereNotIn('status', ['Completata', 'Annullata']);
-        elseif ($this->filter === 'completate') $query->where('status', 'Completata');
+        if ($this->filter === 'aperte') {
+            $query->whereNotIn('status', ['Completata', 'Annullata']);
+        } elseif ($this->filter === 'completate') {
+            $query->where('status', 'Completata');
+        } elseif ($this->filter === 'annullate') {
+            $query->where('status', 'Annullata');
+        }
+        if ($this->typeFilter !== 'Tutte') {
+            $query->where('kind', $this->typeFilter);
+        }
+        if ($this->search !== '') {
+            $query->where(function ($q) {
+                $term = '%'.str_replace(['%', '_'], ['\\%', '\\_'], trim($this->search)).'%';
+                $q->where('subject', 'ilike', $term)->orWhere('notes', 'ilike', $term);
+            });
+        }
+        if ($this->assignmentFilter === 'Assegnate a me') {
+            $query->where('assigned_to_user_id', $membership->user_id);
+        } elseif ($this->assignmentFilter === 'Create da me') {
+            $query->where('created_by_user_id', $membership->user_id);
+        } elseif ($this->assignmentFilter === 'Ricevute da altri') {
+            $query->where('assigned_to_user_id', $membership->user_id)->where('created_by_user_id', '<>', $membership->user_id);
+        }
+        if (in_array($this->view, ['Giorno', 'Settimana'], true)) {
+            $anchor = CarbonImmutable::parse($this->agendaDate ?: today()->toDateString());
+            $from = $this->view === 'Giorno' ? $anchor->startOfDay() : $anchor->startOfWeek();
+            $to = $this->view === 'Giorno' ? $anchor->endOfDay() : $anchor->endOfWeek();
+            $query->whereBetween('scheduled_at', [$from, $to]);
+        }
+
         return $query->orderByRaw('scheduled_at IS NULL')->orderBy('scheduled_at')->orderByDesc('id')->paginate(20);
+    }
+
+    public function movePeriod(int $direction): void
+    {
+        $anchor = CarbonImmutable::parse($this->agendaDate ?: today()->toDateString());
+        $this->agendaDate = ($this->view === 'Giorno' ? $anchor->addDays($direction) : $anchor->addWeeks($direction))->toDateString();
+        $this->resetPage();
+    }
+
+    public function today(): void
+    {
+        $this->agendaDate = today()->toDateString();
+        $this->resetPage();
+    }
+
+    public function updated(string $property): void
+    {
+        if (in_array($property, ['filter', 'view', 'typeFilter', 'assignmentFilter', 'search', 'agendaDate'], true)) {
+            $this->resetPage();
+        }
     }
 
     #[Computed]
@@ -97,7 +166,9 @@ new #[Layout('layouts::gestionale'), Title('Agenda')] class extends Component {
                 'scheduled_at' => $this->scheduledAt ?: null,
                 'visibility' => 'workflow',
                 'notes' => trim($this->notes) ?: null,
-                'metadata' => [],
+                // PostgreSQL constrains activity metadata to a JSON object.
+                // An empty PHP array is encoded as `[]`, which violates that check.
+                'metadata' => (object) [],
             ])->save();
             app(Audit::class)->record('activity.create', $activity, ['kind' => $activity->kind, 'subject' => $activity->subject]);
         });
@@ -111,9 +182,14 @@ new #[Layout('layouts::gestionale'), Title('Agenda')] class extends Component {
         $activity = Activity::query()->where('agency_id', $this->membership->agency_id)->findOrFail($id);
         $this->authorize('update', $activity);
         DB::transaction(function () use ($activity) {
+            $activity = Activity::query()->where('agency_id', $this->membership->agency_id)->lockForUpdate()->findOrFail($activity->id);
+            if (in_array($activity->status, ['Completata', 'Annullata'], true)) {
+                return;
+            }
             $before = $activity->status;
             $activity->forceFill(['status' => 'Completata', 'completed_at' => now()])->save();
             app(Audit::class)->record('activity.complete', $activity, ['before' => $before, 'after' => 'Completata']);
+
         });
         unset($this->activities);
     }
@@ -122,13 +198,33 @@ new #[Layout('layouts::gestionale'), Title('Agenda')] class extends Component {
 <div class="flex flex-col gap-6">
     <div class="crm-page-head">
         <div><flux:heading size="xl" level="1">Agenda</flux:heading><flux:text class="mt-1">Chiamate, visite e promemoria dell’agenzia.</flux:text></div>
-        <flux:select wire:model.live="filter" class="w-44"><flux:select.option value="aperte">Da svolgere</flux:select.option><flux:select.option value="completate">Completate</flux:select.option><flux:select.option value="tutte">Tutte</flux:select.option></flux:select>
+        <flux:button.group>
+            <flux:button :variant="$view === 'Giorno' ? 'primary' : 'filled'" wire:click="$set('view', 'Giorno')">Giorno</flux:button>
+            <flux:button :variant="$view === 'Settimana' ? 'primary' : 'filled'" wire:click="$set('view', 'Settimana')">Settimana</flux:button>
+            <flux:button :variant="$view === 'Elenco' ? 'primary' : 'filled'" wire:click="$set('view', 'Elenco')">Elenco</flux:button>
+        </flux:button.group>
     </div>
     @if (session('status'))<flux:callout icon="check-circle">{{ session('status') }}</flux:callout>@endif
     <flux:card>
+        <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <flux:input wire:model.live.debounce.300ms="search" label="Cerca" placeholder="Titolo o note" />
+            <flux:select wire:model.live="typeFilter" label="Tipo"><flux:select.option>Tutte</flux:select.option>@foreach (['Chiamata','Visita','Appuntamento','Email','Promemoria','Altro'] as $type)<flux:select.option>{{ $type }}</flux:select.option>@endforeach</flux:select>
+            <flux:select wire:model.live="filter" label="Stato"><flux:select.option value="aperte">Da svolgere</flux:select.option><flux:select.option value="completate">Completate</flux:select.option><flux:select.option value="annullate">Annullate</flux:select.option><flux:select.option value="tutte">Tutte</flux:select.option></flux:select>
+            <flux:select wire:model.live="assignmentFilter" label="Assegnazione"><flux:select.option>Tutte</flux:select.option><flux:select.option>Assegnate a me</flux:select.option><flux:select.option>Create da me</flux:select.option><flux:select.option>Ricevute da altri</flux:select.option></flux:select>
+        </div>
+        @if ($view !== 'Elenco')
+            <div class="mt-4 flex flex-wrap items-end gap-3">
+                <flux:button variant="ghost" wire:click="movePeriod(-1)" aria-label="Periodo precedente">←</flux:button>
+                <flux:input type="date" wire:model.live="agendaDate" label="{{ $view === 'Giorno' ? 'Giorno' : 'Settimana di riferimento' }}" />
+                <flux:button variant="ghost" wire:click="movePeriod(1)" aria-label="Periodo successivo">→</flux:button>
+                <flux:button variant="ghost" wire:click="today">Oggi</flux:button>
+            </div>
+        @endif
+    </flux:card>
+    <flux:card>
         <form wire:submit="create" class="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             <flux:input wire:model="subject" label="Attività" placeholder="Es. Richiamare per confermare la visita" />
-            <flux:select wire:model="kind" label="Tipo"><flux:select.option>Chiamata</flux:select.option><flux:select.option>Visita</flux:select.option><flux:select.option>Appuntamento</flux:select.option><flux:select.option>Email</flux:select.option><flux:select.option>Promemoria</flux:select.option><flux:select.option>Altro</flux:select.option></flux:select>
+            <flux:select wire:model.live="kind" label="Tipo"><flux:select.option>Chiamata</flux:select.option><flux:select.option>Visita</flux:select.option><flux:select.option>Appuntamento</flux:select.option><flux:select.option>Email</flux:select.option><flux:select.option>Promemoria</flux:select.option><flux:select.option>Altro</flux:select.option></flux:select>
             <flux:input type="datetime-local" wire:model="scheduledAt" label="Quando (facoltativo)" />
             <flux:select wire:model="contactId" label="Cliente (facoltativo)"><flux:select.option value="">Nessun cliente</flux:select.option>@foreach ($this->contacts as $contact)<flux:select.option value="{{ $contact->id }}">{{ $contact->display_name }}</flux:select.option>@endforeach</flux:select>
             <flux:select wire:model="propertyId" label="Immobile (facoltativo)"><flux:select.option value="">Nessun immobile</flux:select.option>@foreach ($this->properties as $property)<flux:select.option value="{{ $property->id }}">{{ $property->title }}</flux:select.option>@endforeach</flux:select>

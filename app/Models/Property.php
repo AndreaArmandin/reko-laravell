@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Models\Concerns\BelongsToAgency;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -78,7 +79,7 @@ class Property extends Model
         return $this->hasMany(Activity::class);
     }
 
-    public function scopeVisibleTo(\Illuminate\Database\Eloquent\Builder $query, ?AgencyMembership $membership): void
+    public function scopeVisibleTo(Builder $query, ?AgencyMembership $membership): void
     {
         if (! $membership?->isActive()) {
             $query->whereRaw('false');
@@ -98,9 +99,7 @@ class Property extends Model
             return;
         }
 
-        $query->where(fn ($visible) => $visible
-            ->where($query->qualifyColumn('agent_user_id'), $membership->user_id)
-            ->orWhere($query->qualifyColumn('acquired_by_user_id'), $membership->user_id)
-            ->orWhereJsonContains($query->qualifyColumn('assigned_scout_user_ids'), (int) $membership->user_id));
+        // Operatore 1 (scout): nessun immobile a portafoglio (engine.ts:58).
+        $query->whereRaw('false');
     }
 }
