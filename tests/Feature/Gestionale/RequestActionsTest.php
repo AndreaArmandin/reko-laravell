@@ -18,15 +18,100 @@ use App\Models\AuditEvent;
 use App\Models\ClientProfile;
 use App\Models\Contact;
 use App\Models\PropertyRequest;
+use App\Models\Property;
+use App\Models\PropertyMatch;
+use App\Models\Activity;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
+use Livewire\Livewire;
 
 beforeEach(function () {
     $this->admin = AgencyMembership::factory()->admin()->create();
     $this->crm = AgencyMembership::factory()->crm()->create(['agency_id' => $this->admin->agency_id]);
     $this->crm2 = AgencyMembership::factory()->crm()->create(['agency_id' => $this->admin->agency_id]);
     $this->scout = AgencyMembership::factory()->scout()->create(['agency_id' => $this->admin->agency_id]);
+});
+
+it('saves map picks into the zone answer instead of leaving the default point', function () {
+    $this->actingAs($this->crm->user);
+
+    Livewire::test('pages::gestionale.requests.create')
+        ->dispatch('map-point-picked', key: 'pick-details.nearPoint', lat: 45.12345, lng: 9.54321)
+        ->assertSet('details.nearPoint.lat', '45.12345')
+        ->assertSet('details.nearPoint.lng', '9.54321')
+        ->assertSet('details.nearPoint.radius', '2');
+});
+
+it('uses the original match-state workflow and records a confirmed proposal in the agenda', function () {
+    $request = rq_create($this->crm, ['client' => ['name' => 'Cliente abbinamenti', 'phone' => '3335550198']]);
+    $request = rq_answer($this->crm, $request, 'operation', 'Acquisto');
+    $this->actingAs($this->admin->user);
+    $property = Property::query()->create([
+        'agency_id' => $this->admin->agency_id, 'agent_user_id' => $this->crm->user_id,
+        'title' => 'Appartamento abbinato', 'status' => 'Attivo', 'city' => 'Milano',
+    ]);
+    $match = PropertyMatch::query()->create([
+        'agency_id' => $this->admin->agency_id, 'property_id' => $property->id,
+        'property_request_id' => $request->id, 'score' => 88, 'status' => 'Nuovo abbinamento',
+        'result' => ['score' => 88, 'confidence' => 'Media', 'compared' => 1, 'answered' => 2, 'conditional' => true, 'version' => 1,
+            'comparisons' => [['id' => 'budget', 'label' => 'Qual è il budget?', 'classification' => 'Indispensabile', 'status' => 'missing', 'expected' => '100000', 'actual' => '150000']],
+            'reasons' => ['Requisito indispensabile non soddisfatto: Qual è il budget?']],
+    ]);
+    $lowerProperty = Property::query()->create([
+        'agency_id' => $this->admin->agency_id, 'agent_user_id' => $this->crm->user_id,
+        'title' => 'Immobile sotto soglia', 'status' => 'Attivo', 'city' => 'Milano',
+    ]);
+    PropertyMatch::query()->create([
+        'agency_id' => $this->admin->agency_id, 'property_id' => $lowerProperty->id,
+        'property_request_id' => $request->id, 'score' => 55, 'status' => 'Nuovo abbinamento',
+    ]);
+
+    $page = Livewire::test('pages::gestionale.requests.show', ['propertyRequest' => $request])
+        ->assertSet('activeTab', 'Profilazione')
+        ->call('selectTab', 'Abbinamenti')
+        ->assertSet('activeTab', 'Abbinamenti')
+        ->assertSee('Apri confronto')
+        ->set('matchMinimum', '80')
+        ->assertSee('Appartamento abbinato')
+        ->assertDontSee('Immobile sotto soglia')
+        ->set('matchStatus', 'Da valutare')
+        ->assertSee('Nessun abbinamento con questi filtri')
+        ->set('matchStatus', 'Tutti')
+        ->call('openMatchEvidence', $match->id)
+        ->assertSee('Cosa non coincide')
+        ->assertSee('Perché questo punteggio?')
+        ->assertSee('Richiesta:')
+        ->assertSee('Valuta abbinamento')
+        ->assertSee('Salva stato')
+        ->assertSet('matchStateForm.state', 'Nuovo abbinamento')
+        ->assertSee('Da valutare')
+        ->set('matchStateForm.state', 'Proposto al cliente')
+        ->call('saveMatchState')
+        ->assertSet('matchStateError', 'Controlla il contenuto e conferma la registrazione della proposta.');
+
+    $page->set('matchStateForm.confirmed', true)
+        ->set('matchStateForm.note', 'Proposta verificata in chiamata')
+        ->call('saveMatchState')
+        ->assertSet('matchStateId', null)
+        ->assertSet('matchEvidenceId', null);
+
+    expect($match->fresh()->status)->toBe('Proposto al cliente')
+        ->and($request->fresh()->status)->toBe('Immobili proposti')
+        ->and(Activity::query()->where('kind', 'Proposta di immobile')->where('property_id', $property->id)->exists())->toBeTrue();
+});
+
+it('keeps the matches tab unavailable until the request has an operation', function () {
+    $request = rq_create($this->crm, ['client' => ['name' => 'Cliente scheda', 'phone' => '3335550197']]);
+    $this->actingAs($this->admin->user);
+
+    Livewire::test('pages::gestionale.requests.show', ['propertyRequest' => $request])
+        ->assertSet('activeTab', 'Profilazione')
+        ->call('selectTab', 'Abbinamenti')
+        ->assertSet('activeTab', 'Profilazione')
+        ->call('selectTab', 'Cronologia')
+        ->assertSet('activeTab', 'Cronologia')
+        ->assertSee('Cronologia');
 });
 
 function rq_counts(): array

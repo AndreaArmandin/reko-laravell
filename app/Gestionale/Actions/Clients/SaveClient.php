@@ -9,6 +9,7 @@ use App\Gestionale\CommandRejected;
 use App\Gestionale\Commands;
 use App\Gestionale\ContactKeys;
 use App\Gestionale\Idempotency;
+use App\Models\Activity;
 use App\Models\AgencyMembership;
 use App\Models\ClientProfile;
 use App\Models\Contact;
@@ -24,7 +25,7 @@ use Illuminate\Support\Facades\DB;
  *   historical values are not re-validated; first error only;
  * - same primary phone/email of another client of the agency (changed values only) → 409 unless confirmed;
  * - a non-admin is always the referent; an admin picks an active member;
- * - changing the referent moves the client's requests too (same transaction);
+ * - changing the referent moves the client's requests and activities too (same transaction);
  * - consents_updated_at is refreshed on every save; one audit entry 'client.save'.
  */
 final class SaveClient
@@ -70,12 +71,15 @@ final class SaveClient
         $text = Commands::text(...);
 
         $name = $text($value('name', $client?->display_name), 120);
-        $phone = $text($value('phone', $client?->primaryPhone?->value), 60);
-        $email = $text($value('email', $client?->primaryEmail?->value), 160);
-        $phoneChanged = ! $client || $phone !== $text($client->primaryPhone?->value);
-        $emailChanged = ! $client || $email !== $text($client->primaryEmail?->value);
+        // contact-validation.ts checks the typed values (trimmed, never cut): "> 60" and "> 160" must be able to fire.
+        $typedPhone = trim((string) $value('phone', $client?->primaryPhone?->value));
+        $typedEmail = trim((string) $value('email', $client?->primaryEmail?->value));
+        $phoneChanged = ! $client || $text($typedPhone) !== $text($client->primaryPhone?->value);
+        $emailChanged = ! $client || $text($typedEmail) !== $text($client->primaryEmail?->value);
 
-        self::validateContact($name, $phone, $email, $phoneChanged, $emailChanged, $client === null);
+        self::validateContact($name, $typedPhone, $typedEmail, $phoneChanged, $emailChanged, $client === null);
+        $phone = $text($typedPhone, 60);
+        $email = $text($typedEmail, 160);
 
         $duplicate = ClientMatcher::matches(null, $phoneChanged ? $phone : null, $emailChanged ? $email : null, $client?->id)
             ->contains(fn ($m) => $m->phone || $m->email);
@@ -132,6 +136,8 @@ final class SaveClient
         if ($agentChanged) {
             $ids = PropertyRequest::query()->where('contact_id', $client->id)->pluck('id');
             PropertyRequest::query()->whereKey($ids)->update(['agent_user_id' => $agentId, 'updated_at' => now()]);
+            // ... and so are its activities (engine.ts:171: activity.agentId = agentId).
+            Activity::query()->where('contact_id', $client->id)->update(['assigned_to_user_id' => $agentId, 'updated_at' => now()]);
             $ids->each(fn ($id) => PropertyRequestCriteriaChanged::dispatch((int) $id));
         }
 

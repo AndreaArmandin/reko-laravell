@@ -1,6 +1,8 @@
 <?php
 
-use App\Gestionale\CurrentAgency;
+use App\Gestionale\Livewire\HandlesCommands;
+use App\Gestionale\Livewire\ManagesPropertyLifecycle;
+use App\Gestionale\Properties\PropertyFilters;
 use App\Models\Property;
 use Illuminate\Database\Eloquent\Builder;
 use Livewire\Attributes\Computed;
@@ -10,8 +12,15 @@ use Livewire\Attributes\Url;
 use Livewire\Component;
 use Livewire\WithPagination;
 
+/*
+ * Immobili a portafoglio (properties.tsx Properties): le opportunità commerciali dell'agenzia.
+ * Filtri: ricerca (titolo, indirizzo, civico, zona, codice), stato commerciale, schede di prova (lista principale
+ * senza test, solo test, tutte), e dalla panoramica "incompleti" e "scadenza" (incarico che scade entro i giorni
+ * di promemoria). Archiviati e rimossi in una sezione a parte, con ripristino per riga.
+ * Visibilità: Responsabile tutti, Segreteria solo i propri, Operatore nessuno.
+ */
 new #[Layout('layouts::gestionale'), Title('Immobili a portafoglio')] class extends Component {
-    use WithPagination;
+    use HandlesCommands, ManagesPropertyLifecycle, WithPagination;
 
     #[Url(as: 'q')]
     public string $search = '';
@@ -19,11 +28,25 @@ new #[Layout('layouts::gestionale'), Title('Immobili a portafoglio')] class exte
     #[Url(as: 'stato')]
     public string $status = '';
 
+    /** '' | incompleti | scadenza */
+    #[Url(as: 'filtro')]
+    public string $filter = '';
+
+    /** standard | test | all */
+    #[Url(as: 'schede')]
+    public string $tests = 'standard';
+
     public function mount(): void
     {
         $this->authorize('viewAny', Property::class);
         if ($this->status !== '' && ! in_array($this->status, Property::STATUSES, true)) {
             $this->status = '';
+        }
+        if (! in_array($this->filter, ['', 'incompleti', 'scadenza'], true)) {
+            $this->filter = '';
+        }
+        if (! in_array($this->tests, PropertyFilters::TEST_MODES, true)) {
+            $this->tests = 'standard';
         }
     }
 
@@ -32,94 +55,108 @@ new #[Layout('layouts::gestionale'), Title('Immobili a portafoglio')] class exte
         $this->resetPage();
     }
 
-    private function base(): Builder
+    private function visible(): Builder
     {
-        $term = trim($this->search);
-        return Property::query()->visibleTo(app(CurrentAgency::class)->membership())
-            ->when($term !== '', fn ($q) => $q->where(fn ($w) => $w->where('title', 'ilike', '%'.$term.'%')
-                ->orWhere('address', 'ilike', '%'.$term.'%')->orWhere('city', 'ilike', '%'.$term.'%')
-                ->orWhere('zone', 'ilike', '%'.$term.'%')))
-            ->when($this->status !== '', fn ($q) => $q->where('status', $this->status));
+        return Property::query()->visibleTo($this->actor());
     }
 
     #[Computed]
     public function properties()
     {
-        return $this->base()->whereNull('lifecycle_state')->with('municipality')->withCount('matches')
-            ->orderByDesc('updated_at')->orderByDesc('id')->paginate(24);
+        $query = PropertyFilters::testVisibility(PropertyFilters::search($this->visible()->whereNull('lifecycle_state'), $this->search), $this->tests)
+            ->when($this->status !== '', fn (Builder $q) => $q->where('status', $this->status));
+        if ($this->filter === 'incompleti') {
+            PropertyFilters::incomplete($query);
+        } elseif ($this->filter === 'scadenza') {
+            PropertyFilters::expiring($query);
+        }
+
+        return $query->orderBy('id')->paginate(30);
+    }
+
+    /** Schede di prova fra quelle attive: il numero di "Solo test". */
+    #[Computed]
+    public function testCount(): int
+    {
+        return PropertyFilters::testVisibility($this->visible()->whereNull('lifecycle_state'), 'test')->count();
     }
 
     #[Computed]
     public function archived()
     {
-        return $this->base()->whereNotNull('lifecycle_state')->with('municipality')->orderByDesc('updated_at')->limit(100)->get();
+        return $this->visible()->whereNotNull('lifecycle_state')->orderBy('id')->get(['id', 'title', 'lifecycle_state', 'lifecycle_at']);
     }
 
-    public function clearFilters(): void
+    #[Computed]
+    public function admin(): bool
     {
-        $this->reset('search', 'status');
+        return $this->actor()->isAdmin();
+    }
+
+    public function afterLifecycle(int $id): void
+    {
+        unset($this->properties, $this->archived, $this->testCount);
+    }
+
+    public function clearFilter(): void
+    {
+        $this->filter = '';
         $this->resetPage();
     }
 }; ?>
 
-<div class="flex flex-col gap-6">
+<div>
     <div class="crm-page-head">
         <div>
-            <flux:text size="sm">Immobili</flux:text>
-            <flux:heading size="xl" level="1">Portafoglio</flux:heading>
-            <flux:text class="mt-1">Incarichi e opportunità commerciali collegabili alle richieste dei clienti.</flux:text>
+            <p class="proto-eyebrow">REKO Gestionale</p>
+            <h1>Immobili a portafoglio</h1>
+            <p class="crm-muted">Le opportunità commerciali dell’agenzia. Non tutte le unità catastali sono immobili da proporre.</p>
         </div>
         @can('create', App\Models\Property::class)
-            <flux:button variant="primary" icon="plus" :href="route('gestionale.properties.create')" wire:navigate>Nuovo immobile</flux:button>
+            <div class="crm-actions">
+                <a class="crm-btn" href="{{ route('gestionale.properties.create') }}" wire:navigate><x-gestionale.lucide name="plus" :size="16" />Nuovo immobile</a>
+            </div>
         @endcan
     </div>
 
-    <div class="flex flex-wrap items-end gap-3">
-        <div class="w-full max-w-sm"><flux:input wire:model.live.debounce.300ms="search" icon="magnifying-glass" label="Cerca immobile" placeholder="Titolo, indirizzo, Comune o zona" /></div>
-        <div class="w-56"><flux:select wire:model.live="status" label="Stato commerciale">
-            <flux:select.option value="">Tutti gli stati</flux:select.option>
-            @foreach (App\Models\Property::STATUSES as $value)<flux:select.option :value="$value">{{ $value }}</flux:select.option>@endforeach
-        </flux:select></div>
-        @if ($search !== '' || $status !== '')<flux:link as="button" wire:click="clearFilters">Azzera filtri</flux:link>@endif
-        <flux:text size="sm">{{ $this->properties->total() }} {{ $this->properties->total() === 1 ? 'immobile' : 'immobili' }}</flux:text>
+    <div class="crm-toolbar">
+        <label class="crm-field"><span>Cerca immobile</span>
+            <input type="search" wire:model.live.debounce.300ms="search" placeholder="Titolo, indirizzo, civico, zona o codice">
+        </label>
+        <label class="crm-field"><span>Schede da mostrare</span>
+            <select wire:model.live="tests">
+                <option value="standard">Lista principale · test esclusi</option>
+                <option value="test">Solo test ({{ $this->testCount }})</option>
+                <option value="all">Tutte, compresi i test</option>
+            </select>
+        </label>
+        <label class="crm-field"><span>Stato commerciale</span>
+            <select wire:model.live="status">
+                <option value="">Tutti</option>
+                @foreach (App\Models\Property::STATUSES as $value)<option value="{{ $value }}">{{ $value }}</option>@endforeach
+            </select>
+        </label>
+        <span>{{ $this->properties->total() }} {{ $this->properties->total() === 1 ? 'immobile' : 'immobili' }}{{ $filter === 'scadenza' ? ' · consultazione storica, gestione incarichi sospesa' : ($filter === 'incompleti' ? ' · schede / annunci da completare' : '') }}</span>
+        @if ($filter !== '')<button type="button" class="crm-link" wire:click="clearFilter">Rimuovi filtro</button>@endif
     </div>
-
-    <div class="grid gap-3 lg:grid-cols-2">
-        @forelse ($this->properties as $property)
-            <flux:card class="flex flex-col gap-3" wire:key="property-{{ $property->id }}">
-                <div class="flex items-start justify-between gap-3">
-                    <div class="min-w-0">
-                        <flux:link :href="route('gestionale.properties.show', $property)" wire:navigate class="font-semibold">{{ $property->title }}</flux:link>
-                        <flux:text size="sm">{{ $property->address }}@if ($property->civic) {{ $property->civic }}@endif · {{ $property->city ?: $property->municipality?->name }}</flux:text>
-                    </div>
-                    <flux:badge size="sm">{{ $property->status }}</flux:badge>
-                </div>
-                <div class="flex flex-wrap gap-x-4 gap-y-1">
-                    <flux:text size="sm">{{ $property->features['operation'] ?? 'Operazione non indicata' }}</flux:text>
-                    @if (isset($property->features['price']))<flux:text size="sm">{{ number_format((float) $property->features['price'], 0, ',', '.') }} €</flux:text>@endif
-                    @if (isset($property->features['area']))<flux:text size="sm">{{ number_format((float) $property->features['area'], 0, ',', '.') }} m²</flux:text>@endif
-                    <flux:text size="sm">{{ $property->matches_count }} {{ $property->matches_count === 1 ? 'abbinamento' : 'abbinamenti' }}</flux:text>
-                </div>
-                <div class="flex gap-2">
-                    <flux:button size="sm" :href="route('gestionale.properties.show', $property)" wire:navigate>Apri scheda</flux:button>
-                    @can('update', $property)<flux:button size="sm" variant="ghost" :href="route('gestionale.properties.edit', $property)" wire:navigate>Modifica</flux:button>@endcan
-                </div>
-            </flux:card>
-        @empty
-            <flux:card class="lg:col-span-2"><flux:text>Nessun immobile con questi filtri. Crea una scheda per iniziare il portafoglio.</flux:text></flux:card>
-        @endforelse
-    </div>
-    {{ $this->properties->links() }}
 
     @if ($this->archived->isNotEmpty())
-        <section class="flex flex-col gap-2">
-            <flux:heading size="lg">Archivio · {{ $this->archived->count() }}</flux:heading>
-            @foreach ($this->archived as $property)
-                <flux:card class="flex items-center gap-3">
-                    <flux:link class="flex-1" :href="route('gestionale.properties.show', $property)" wire:navigate>{{ $property->title }} · {{ $property->city ?: $property->municipality?->name }}</flux:link>
-                    <flux:badge color="zinc">{{ $property->lifecycle_state === 'removed' ? 'Rimosso' : 'Archiviato' }}</flux:badge>
-                </flux:card>
+        <details class="crm-operational-filters">
+            <summary>Archiviati e rimossi · {{ $this->archived->count() }}</summary>
+            @foreach ($this->archived as $item)
+                <div class="crm-record-row" wire:key="archived-{{ $item->id }}">
+                    <a class="crm-link" href="{{ route('gestionale.properties.show', $item->id) }}" wire:navigate>{{ $item->title }}</a>
+                    <x-gestionale.crm-lifecycle kind="property" :id="$item->id" :state="$item->lifecycle_state" :at="$item->lifecycle_at" :admin="$this->admin" />
+                </div>
             @endforeach
-        </section>
+        </details>
     @endif
+
+    <div class="crm-property-grid">
+        @foreach ($this->properties as $property)
+            <x-gestionale.property-card :property="$property" />
+        @endforeach
+    </div>
+    @if ($this->properties->isEmpty())<div class="crm-empty">Nessun immobile accessibile con questi filtri.</div>@endif
+    {{ $this->properties->links() }}
 </div>

@@ -4,6 +4,11 @@ use App\Models\Municipality;
 use App\Models\GeographicZone;
 use App\Models\TrovaFavorite;
 use App\Models\TrovaSearchHistoryEntry;
+use App\Models\TrovaSavedSearch;
+use App\Models\Parcel;
+use App\Gestionale\Actions\Scouting\AcquireCatalogParcels;
+use App\Gestionale\CommandRejected;
+use App\Gestionale\CurrentAgency;
 use App\Trova\BusinessActivities;
 use App\Trova\CatalogSearch;
 use App\Trova\Floors;
@@ -15,6 +20,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Layout;
+use Livewire\Attributes\Locked;
 use Livewire\Component;
 
 /*
@@ -71,9 +77,13 @@ new #[Layout('layouts::trova')] class extends Component {
 
     // Risultati
     /** @var array<string, mixed>|null criteri congelati al momento della ricerca */
+    #[Locked]
     public ?array $query = null;
 
+    #[Locked]
     public array $rows = [];
+
+    public string $savedSearchName = '';
 
     public int $total = 0;
 
@@ -531,6 +541,97 @@ new #[Layout('layouts::trova')] class extends Component {
         }
     }
 
+    /** Salva la ricerca solo su richiesta esplicita dell’utente, senza scadenza. */
+    public function saveSearch(): void
+    {
+        abort_unless(auth()->check(), 401);
+        if ($this->step !== 'results' || $this->query === null || $this->error !== null) {
+            $this->dispatch('crm-notice', type: 'error', text: 'Completa prima una ricerca valida.');
+
+            return;
+        }
+
+        $name = trim($this->savedSearchName);
+        if ($name === '' || mb_strlen($name) > 160) {
+            $this->addError('savedSearchName', 'Inserisci un nome da 1 a 160 caratteri.');
+
+            return;
+        }
+
+        TrovaSavedSearch::query()->create([
+            'user_id' => auth()->id(), 'name' => $name, 'criteria' => $this->query,
+            'total' => $this->total, 'completed_at' => now(),
+        ]);
+        $this->reset('savedSearchName');
+        $this->resetErrorBag('savedSearchName');
+        unset($this->savedSearches);
+        $this->dispatch('crm-notice', type: 'success', text: 'Ricerca salvata.');
+    }
+
+    public function repeatSavedSearch(int $id): void
+    {
+        $entry = TrovaSavedSearch::query()->where('user_id', auth()->id())->find($id);
+        if ($entry === null) {
+            unset($this->savedSearches);
+
+            return;
+        }
+
+        $this->applyCriteria($entry->criteria);
+    }
+
+    public function removeSavedSearch(int $id): void
+    {
+        TrovaSavedSearch::query()->where('user_id', auth()->id())->whereKey($id)->delete();
+        unset($this->savedSearches);
+    }
+
+    /** Acquisisce una particella del risultato nel censimento, senza creare un immobile a portafoglio. */
+    public function addResultToCensus(int $parcelId): void
+    {
+        $membership = app(CurrentAgency::class)->membership();
+        if ($membership === null || ! $membership->isActive() || ! in_array($membership->role, ['admin', 'scout'], true)) {
+            $this->dispatch('crm-notice', type: 'error', text: 'Questa funzione è disponibile per Responsabile e Agente acquisizioni.');
+
+            return;
+        }
+
+        $appearsInResults = collect($this->rows)->contains(fn ($row) => (int) ($row['parcel_id'] ?? 0) === $parcelId);
+        if (! $appearsInResults || $this->query === null) {
+            $this->dispatch('crm-notice', type: 'error', text: 'Il risultato non è più disponibile. Aggiorna la ricerca.');
+
+            return;
+        }
+
+        $parcel = Parcel::query()->with('municipality')->whereKey($parcelId)
+            ->where('cadastral_kind', 'F')->first();
+        if ($parcel === null || $parcel->municipality?->cadastral_code !== ($this->query['code'] ?? null)) {
+            $this->dispatch('crm-notice', type: 'error', text: 'La particella non corrisponde al Comune della ricerca.');
+
+            return;
+        }
+
+        try {
+            $result = app(AcquireCatalogParcels::class)->handle($membership, [
+                'parcels' => [[
+                    'code' => $parcel->municipality->cadastral_code,
+                    'section' => (string) $parcel->section,
+                    'sheet' => (string) $parcel->sheet,
+                    'parcel' => (string) $parcel->number,
+                ]],
+                'token' => (string) Str::uuid(),
+            ]);
+        } catch (CommandRejected $e) {
+            $this->dispatch('crm-notice', type: 'error', text: $e->getMessage());
+
+            return;
+        }
+
+        $this->dispatch('crm-notice', type: 'success', text: ($result['units'] ?? 0) > 0
+            ? 'Particella acquisita nell’Archivio catastale, senza creare un immobile a portafoglio.'
+            : 'La particella era già presente nell’Archivio catastale.');
+    }
+
     public function updatedSort(): void
     {
         $this->sort = in_array($this->sort, ['surface-desc', 'surface-asc'], true) ? $this->sort : 'surface-desc';
@@ -710,6 +811,12 @@ new #[Layout('layouts::trova')] class extends Component {
         return TrovaSearchHistoryEntry::query()->where('user_id', auth()->id())->where('expires_at', '>', now())->latest('completed_at')->get();
     }
 
+    #[Computed]
+    public function savedSearches()
+    {
+        return TrovaSavedSearch::query()->where('user_id', auth()->id())->latest('completed_at')->get();
+    }
+
     public function historyTitle(array $criteria): string
     {
         $what = match (true) {
@@ -734,7 +841,12 @@ new #[Layout('layouts::trova')] class extends Component {
 
             return;
         }
-        $c = $entry->criteria;
+        $this->applyCriteria($entry->criteria);
+    }
+
+    /** @param array<string, mixed> $c */
+    private function applyCriteria(array $c): void
+    {
         $this->reset();
         $this->code = (string) $c['code'];
         $this->choice = ($c['segment'] ?? '') === 'business' ? 'business' : (($c['housing'] ?? '') === 'garage' ? 'garage' : 'homes');
@@ -883,6 +995,16 @@ new #[Layout('layouts::trova')] class extends Component {
                     <div class="reko-journey-top">
                         <h3>Risultati della ricerca</h3>
                         <div class="flex flex-wrap gap-3">
+                            @if ($error === null)
+                                <details class="trova-save-search">
+                                    <summary class="crm-btn secondary">Salva ricerca con un nome</summary>
+                                    <form wire:submit="saveSearch" class="trova-save-search-form">
+                                        <label class="crm-field"><span>Nome della ricerca</span><input type="text" maxlength="160" wire:model="savedSearchName" placeholder="Es. ricerca per Pina Fantozzi" required></label>
+                                        @error('savedSearchName')<p class="trova-validation-error" role="alert">{{ $message }}</p>@enderror
+                                        <button class="crm-btn" type="submit">Salva ricerca</button>
+                                    </form>
+                                </details>
+                            @endif
                             <button data-trova-back class="crm-btn secondary" wire:click="edit">Modifica ricerca</button>
                             <button class="crm-link" wire:click="newSearch">Nuova ricerca</button>
                         </div>
@@ -1023,8 +1145,11 @@ new #[Layout('layouts::trova')] class extends Component {
                                                     <p class="reko-filter-note">Posizione cartografica non disponibile.</p>
                                                 @endif
                                                 @php($agencyMembership = app(\App\Gestionale\CurrentAgency::class)->membership())
-                                                @if ($agencyMembership && in_array($agencyMembership->role, ['admin', 'crm'], true))
-                                                    <a class="crm-btn secondary mt-3 inline-flex" href="{{ route('gestionale.properties.create', ['unitIds' => collect($row['units'])->pluck('id')->filter()->values()->all()]) }}">Aggiungi al portafoglio</a>
+                                                @if ($agencyMembership && in_array($agencyMembership->role, ['admin', 'scout'], true))
+                                                    @php($catalogEnabled = $agencyMembership->role === 'admin' || (($agencyMembership->catalog_package['enabled'] ?? false) === true))
+                                                    <button class="crm-btn secondary mt-3 inline-flex" type="button" wire:click.stop="addResultToCensus({{ (int) $row['parcel_id'] }})" wire:loading.attr="disabled" @disabled(! $catalogEnabled)>
+                                                        {{ $catalogEnabled ? 'Aggiungi all’Archivio catastale' : 'Acquisizione del catalogo non abilitata' }}
+                                                    </button>
                                                 @endif
                                             </div></div>
                                         </article>
@@ -1294,6 +1419,26 @@ new #[Layout('layouts::trova')] class extends Component {
         <header><h2 id="trova-history-title">Ricerche recenti</h2><button type="button" aria-label="Chiudi spiegazione" x-on:click="$refs.history.close()"><x-trova.icon name="x" size="22" /></button></header>
         <div class="trova-help-content">
             <button class="crm-btn trova-new-search" type="button" wire:click="newSearch" x-on:click="$refs.history.close()">Nuova ricerca</button>
+            <section aria-labelledby="trova-saved-searches-title">
+                <h3 id="trova-saved-searches-title">Ricerche salvate</h3>
+                <p>Le ricerche che hai nominato restano disponibili finché non le elimini.</p>
+                @if ($this->savedSearches->isEmpty())
+                    <p>Nessuna ricerca salvata.</p>
+                @endif
+                <ul class="trova-history-list">
+                    @foreach ($this->savedSearches as $savedSearch)
+                        <li wire:key="saved-search-{{ $savedSearch->id }}">
+                            <h3>{{ $savedSearch->name }}</h3>
+                            <p>{{ $this->historyTitle($savedSearch->criteria) }} · {{ number_format($savedSearch->total, 0, ',', '.') }} {{ $savedSearch->total === 1 ? 'particella' : 'particelle' }}</p>
+                            <div class="trova-history-actions">
+                                <button class="crm-btn secondary" wire:click="repeatSavedSearch({{ $savedSearch->id }})" x-on:click="$refs.history.close()">Ripeti ricerca</button>
+                                <button class="crm-btn secondary" type="button" wire:click="removeSavedSearch({{ $savedSearch->id }})" wire:confirm="Eliminare questa ricerca salvata?">Elimina</button>
+                            </div>
+                        </li>
+                    @endforeach
+                </ul>
+            </section>
+            <h3>Ricerche recenti</h3>
             <p>Le ricerche completate negli ultimi 3 giorni. La scadenza non cambia quando le apri.</p>
             @if ($this->history->isEmpty())
                 <p>Nessuna ricerca recente.</p>

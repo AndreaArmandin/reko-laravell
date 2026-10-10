@@ -11,6 +11,7 @@ use App\Models\Contact;
 use App\Models\PropertyRequest;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Layout;
+use Livewire\Attributes\On;
 use Livewire\Attributes\Title;
 use Livewire\Attributes\Url;
 use Livewire\Component;
@@ -62,6 +63,29 @@ new #[Layout('layouts::gestionale'), Title('Nuova richiesta')] class extends Com
             $this->clientName = (string) $contact?->display_name;
         }
         $this->idempotencyKey = (string) str()->uuid();
+    }
+
+    #[On('map-point-picked')]
+    public function pickPoint(string $key = '', mixed $lat = null, mixed $lng = null): void
+    {
+        if (! str_starts_with($key, 'pick-details.') || ! is_numeric($lat) || ! is_numeric($lng)
+            || abs((float) $lat) > 90 || abs((float) $lng) > 180) {
+            return;
+        }
+
+        $id = substr($key, strlen('pick-details.'));
+        if (($this->questionnaire->question($id)['type'] ?? null) !== 'zone') {
+            return;
+        }
+
+        $point = is_array($this->details[$id] ?? null) ? $this->details[$id] : [];
+        $this->details[$id] = [
+            ...$point,
+            'label' => trim((string) ($point['label'] ?? '')) ?: 'Punto scelto',
+            'lat' => (string) $lat,
+            'lng' => (string) $lng,
+            'radius' => (string) ($point['radius'] ?? '2'),
+        ];
     }
 
     #[Computed]
@@ -188,112 +212,58 @@ new #[Layout('layouts::gestionale'), Title('Nuova richiesta')] class extends Com
 }; ?>
 
 @php($zonesConfigured = $this->questionnaire->zones())
-<div class="mx-auto flex max-w-3xl flex-col gap-6">
-    <div>
-        <flux:link :href="route('gestionale.requests.index')" wire:navigate>← Richieste</flux:link>
-        <flux:heading size="xl" level="1" class="mt-2">Nuova richiesta{{ $this->selected ? ' · '.$this->selected->display_name : '' }}</flux:heading>
-    </div>
+<div class="crm-form-page crm-form-page--request">
+    <a class="crm-back" href="{{ route('gestionale.requests.index') }}" wire:navigate>← Richieste</a>
+    <div class="crm-page-head"><div><p class="proto-eyebrow">REKO Gestionale · Richieste</p><h1>Nuova richiesta{{ $this->selected ? ' · '.$this->selected->display_name : '' }}</h1><p class="crm-muted">Registra la ricerca del cliente. Puoi completare il profilo guidato anche in seguito.</p></div></div>
 
-    <form wire:submit="save" class="flex flex-col gap-5">
-        @error('command') <flux:callout variant="danger" icon="exclamation-triangle" :heading="$message" /> @enderror
-        @error('client') <flux:callout variant="danger" icon="exclamation-triangle" :heading="$message" /> @enderror
-        @error('contact_id') <flux:callout variant="danger" icon="exclamation-triangle" :heading="$message" /> @enderror
-        @error('quick') <flux:callout variant="danger" icon="exclamation-triangle" :heading="$message" /> @enderror
-        @error('value') <flux:callout variant="danger" icon="exclamation-triangle" :heading="$message" /> @enderror
+    <form wire:submit="save" class="crm-form">
+        @foreach (['command', 'client', 'contact_id', 'quick', 'value'] as $errorKey)
+            @error($errorKey)<p class="crm-error" role="alert">{{ $message }}</p>@enderror
+        @endforeach
 
-        <flux:card class="flex flex-col gap-3">
-            <flux:heading>Cliente</flux:heading>
+        <section class="crm-panel">
+            <div class="crm-section-head"><h2>Cliente</h2>@if ($this->selected)<button type="button" class="crm-btn secondary" wire:click="clearClient">Cambia cliente</button>@endif</div>
             @if ($this->selected)
-                <div class="flex items-center gap-3">
-                    <flux:avatar :name="$this->selected->display_name" size="sm" />
-                    <div class="flex-1">
-                        <flux:text class="font-medium">{{ $this->selected->display_name }}</flux:text>
-                        <flux:text size="sm">Cliente già in archivio · nessun doppione</flux:text>
-                    </div>
-                    <flux:button size="sm" variant="ghost" wire:click="clearClient">Cambia</flux:button>
-                </div>
-                @if ($this->existing)
-                    <flux:callout variant="warning" icon="exclamation-triangle">
-                        <flux:callout.heading>Il cliente ha già una richiesta.</flux:callout.heading>
-                        @can('view', $this->existing)
-                            <flux:callout.link :href="route('gestionale.requests.show', $this->existing)">Apri {{ $this->existing->title }}</flux:callout.link>
-                        @endcan
-                    </flux:callout>
-                @endif
+                <div class="crm-record-row"><x-gestionale.crm-avatar :name="$this->selected->display_name" :id="$this->selected->id"/><span class="crm-grow"><strong>{{ $this->selected->display_name }}</strong><small>Cliente già in archivio · nessun doppione</small></span></div>
+                @if ($this->existing)<p class="crm-contact-warning">Il cliente ha già una richiesta. @can('view', $this->existing)<a class="crm-link" href="{{ route('gestionale.requests.show', $this->existing) }}" wire:navigate>Apri {{ $this->existing->title }}</a>@endcan</p>@endif
             @else
-                <flux:input wire:model.live.debounce.300ms="clientName" label="Nome e cognome" placeholder="Cerca un cliente o scrivi il nome di uno nuovo" autocomplete="off" />
-                @if ($this->suggestions->isNotEmpty())
-                    <div class="divide-y divide-zinc-200 rounded-lg border border-zinc-200">
-                        @foreach ($this->suggestions as $s)
-                            <button type="button" class="block w-full p-2 text-start hover:bg-zinc-50" wire:click="choose({{ $s->id }})" wire:key="s-{{ $s->id }}">{{ $s->display_name }}</button>
-                        @endforeach
-                    </div>
-                @endif
-                <div class="grid gap-4 md:grid-cols-2">
-                    <flux:input wire:model.live.debounce.400ms="phone" label="Cellulare" type="tel" maxlength="60" />
-                    <flux:input wire:model.live.debounce.400ms="email" label="Email" type="email" maxlength="160" />
+                <label class="crm-field"><span>Nome e cognome</span><input wire:model.live.debounce.300ms="clientName" placeholder="Cerca un cliente o scrivi il nome di uno nuovo" autocomplete="off"></label>
+                @if ($this->suggestions->isNotEmpty())<div class="crm-client-suggestions">@foreach ($this->suggestions as $s)<button type="button" wire:click="choose({{ $s->id }})" wire:key="s-{{ $s->id }}">{{ $s->display_name }}</button>@endforeach</div>@endif
+                <div class="crm-form-grid">
+                    <label class="crm-field"><span>Cellulare</span><input wire:model.live.debounce.400ms="phone" type="tel" maxlength="60" autocomplete="off" placeholder="+39 000 000 0000"></label>
+                    <label class="crm-field"><span>Email</span><input wire:model.live.debounce.400ms="email" type="email" maxlength="160" autocomplete="off" placeholder="cliente@example.invalid"></label>
                 </div>
                 @foreach ($this->matches as $m)
                     @if ($m->phone || $m->email)
-                        <flux:text size="sm" class="text-amber-700">
-                            @can('update', $m->contact)
-                                Recapito già presente: <flux:link as="button" wire:click="choose({{ $m->contact->id }})">Usa {{ $m->contact->display_name }}</flux:link>
-                            @else
-                                Recapito già presente in un’altra scheda dell’agenzia: verifica con il Responsabile.
-                            @endcan
-                        </flux:text>
+                        <p class="crm-contact-warning">@can('update', $m->contact)Recapito già presente: <button class="crm-link" type="button" wire:click="choose({{ $m->contact->id }})">Usa {{ $m->contact->display_name }}</button>@else Recapito già presente in un’altra scheda dell’agenzia: verifica con il Responsabile.@endcan</p>
                     @endif
                 @endforeach
-                @if ($this->matches->contains(fn ($m) => $m->name && ! $m->phone && ! $m->email))
-                    <flux:checkbox wire:model="confirmHomonym" label="Ho verificato che è una persona diversa dal cliente omonimo." />
-                @endif
+                @if ($this->matches->contains(fn ($m) => $m->name && ! $m->phone && ! $m->email))<label class="crm-check"><input type="checkbox" wire:model="confirmHomonym">Ho verificato che è una persona diversa dal cliente omonimo.</label>@endif
             @endif
-        </flux:card>
+        </section>
 
-        <flux:card class="flex flex-col gap-4">
-            <flux:radio.group wire:model.live="operation" label="Acquisto o locazione" variant="segmented">
-                <flux:radio value="Acquisto" label="Acquisto" />
-                <flux:radio value="Locazione" label="Locazione" />
-            </flux:radio.group>
-            <flux:select wire:model="typology" label="Tipologia" placeholder="Scegli la tipologia">
-                @foreach ($this->typologies as $t)
-                    <flux:select.option :value="$t">{{ $t }}</flux:select.option>
-                @endforeach
-            </flux:select>
-            <div>
-                <flux:input wire:model.live.debounce.400ms="zone" label="Zona o Comune" list="gestionale-zones" maxlength="200" />
-                <datalist id="gestionale-zones">
-                    @foreach ($zonesConfigured as $z)
-                        <option value="{{ $z }}"></option>
+        <section class="crm-panel">
+            <h2>Esigenze principali</h2>
+            <div class="crm-form" style="margin-top:16px">
+                <fieldset class="crm-fieldset"><legend>Acquisto o locazione</legend><div class="crm-filter-chips" role="group" aria-label="Acquisto o locazione">
+                    @foreach (['Acquisto', 'Locazione'] as $value)<button type="button" class="crm-chip" aria-pressed="{{ $operation === $value ? 'true' : 'false' }}" wire:click="$set('operation', '{{ $value }}')">{{ $value }}</button>@endforeach
+                </div></fieldset>
+                <label class="crm-field"><span>Tipologia</span><select wire:model="typology"><option value="">Scegli la tipologia</option>@foreach ($this->typologies as $t)<option value="{{ $t }}">{{ $t }}</option>@endforeach</select></label>
+                <label class="crm-field"><span>Zona o Comune</span><input wire:model.live.debounce.400ms="zone" list="gestionale-zones" maxlength="200"><datalist id="gestionale-zones">@foreach ($zonesConfigured as $z)<option value="{{ $z }}"></option>@endforeach</datalist></label>
+                @if (trim($zone) !== '' && ! collect($zonesConfigured)->contains(fn ($z) => mb_strtolower(trim($z)) === mb_strtolower(trim($zone)))<p class="crm-muted">La zona sarà annotata nelle note della richiesta, da precisare nella profilazione.</p>@endif
+                <div class="crm-form-grid"><label class="crm-field"><span>{{ $operation === 'Locazione' ? 'Canone · €/mese · Da' : 'Budget · € · Da' }}</span><input wire:model="budgetMin" inputmode="decimal"></label><label class="crm-field"><span>{{ $operation === 'Locazione' ? 'Canone · €/mese · A' : 'Budget · € · A' }}</span><input wire:model="budgetMax" inputmode="decimal"></label></div>
+                <label class="crm-field"><span>Note libere</span><textarea wire:model="notes" rows="3" maxlength="4000"></textarea></label>
+                <button class="crm-link" type="button" wire:click="$toggle('showDetails')">{{ $showDetails ? '⌄ Nascondi dettagli' : '› Aggiungi dettagli' }}</button>
+                @if ($showDetails)
+                    @foreach ($this->detailQuestions as $question)
+                        <fieldset class="crm-fieldset" wire:key="d-{{ $question['id'] }}"><legend>{{ App\Gestionale\Questionnaire\AnswerPresenter::questionLabel($question) }}</legend>
+                            <x-gestionale.answer-input :question="$question" :options="$this->questionnaire->options($question, $this->purposeCriteria)" model="details.{{ $question['id'] }}" />
+                            <small>Lascia vuoto se da definire.</small>
+                        </fieldset>
                     @endforeach
-                </datalist>
-                @if (trim($zone) !== '' && ! collect($zonesConfigured)->contains(fn ($z) => mb_strtolower(trim($z)) === mb_strtolower(trim($zone))))
-                    <flux:text size="sm" class="mt-1">La zona sarà annotata nelle note della richiesta, da precisare nella profilazione.</flux:text>
                 @endif
             </div>
-            <div class="grid grid-cols-2 gap-4">
-                <flux:input wire:model="budgetMin" :label="$operation === 'Locazione' ? 'Canone · €/mese · Da' : 'Budget · € · Da'" inputmode="decimal" />
-                <flux:input wire:model="budgetMax" :label="$operation === 'Locazione' ? 'Canone · €/mese · A' : 'Budget · € · A'" inputmode="decimal" />
-            </div>
-            <flux:textarea wire:model="notes" label="Note libere" rows="3" maxlength="4000" />
-
-            <div>
-                <flux:button variant="ghost" size="sm" type="button" :icon="$showDetails ? 'chevron-down' : 'chevron-right'" wire:click="$toggle('showDetails')">Aggiungi dettagli</flux:button>
-            </div>
-            @if ($showDetails)
-                @foreach ($this->detailQuestions as $question)
-                    <flux:field wire:key="d-{{ $question['id'] }}">
-                        <flux:label>{{ App\Gestionale\Questionnaire\AnswerPresenter::questionLabel($question) }}</flux:label>
-                        <x-gestionale.answer-input :question="$question" :options="$this->questionnaire->options($question, $this->purposeCriteria)" model="details.{{ $question['id'] }}" />
-                        <flux:text size="sm">Lascia vuoto se da definire.</flux:text>
-                    </flux:field>
-                @endforeach
-            @endif
-        </flux:card>
-
-        <div class="flex gap-2">
-            <flux:button type="submit" variant="primary" :disabled="(bool) $this->existing">Salva richiesta</flux:button>
-            <flux:button :href="route('gestionale.requests.index')" variant="ghost" wire:navigate>Annulla</flux:button>
-        </div>
+        </section>
+        <div class="crm-form-footer"><button class="crm-btn" type="submit" @disabled((bool) $this->existing) wire:loading.attr="disabled" wire:target="save"><span wire:loading.remove wire:target="save">Salva richiesta</span><span wire:loading wire:target="save">Salvataggio…</span></button><a class="crm-btn secondary" href="{{ route('gestionale.requests.index') }}" wire:navigate>Annulla</a></div>
     </form>
 </div>

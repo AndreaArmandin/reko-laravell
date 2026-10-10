@@ -13,6 +13,14 @@ class PropertyMatch extends Model
 {
     use BelongsToAgency;
 
+    /** types.ts matchStatuses */
+    public const STATUSES = ['Nuovo abbinamento', 'Da valutare', 'Approvato dall’agente', 'Proposto al cliente', 'In attesa di risposta', 'Interessato',
+        'Visita da programmare', 'Visita programmata', 'Visitato', 'In trattativa', 'Rifiutato', 'Non compatibile', 'Concluso'];
+
+    /** matches.tsx rejectionReasons */
+    public const REJECTION_REASONS = ['Prezzo', 'Zona', 'Superficie', 'Tipologia', 'Requisito indispensabile', 'Tempistiche', 'Stato dell’immobile',
+        'Esigenze cambiate', 'Altro da motivare'];
+
     protected $table = 'property_matches';
 
     protected $guarded = ['id'];

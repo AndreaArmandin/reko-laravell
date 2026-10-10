@@ -121,6 +121,7 @@ body .trova-fullscreen .reko-search-workspace.is-guided .reko-search-results{min
 .trova-candidate-list>article{padding:12px;border:1px solid #49574e;border-radius:10px;margin-bottom:10px}
 .trova-history-list{list-style:none;padding:0;display:grid;gap:1rem}.trova-history-list>li{border:1px solid #49574e;border-radius:12px;padding:1rem}.trova-history-list h3{font-size:1.125rem;margin:0 0 .4rem}.trova-history-list p{margin:.4rem 0}
 .trova-history-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+.trova-save-search{position:relative;z-index:3}.trova-save-search>summary{list-style:none;cursor:pointer}.trova-save-search>summary::-webkit-details-marker{display:none}.trova-save-search-form{position:absolute;right:0;top:calc(100% + 8px);display:grid;gap:12px;min-width:min(22rem,calc(100vw - 2rem));padding:1rem;background:#fff;border:1px solid #cbd5ce;border-radius:12px;box-shadow:0 12px 32px #18301f24}
 .trova-new-search{width:100%;justify-content:center;background:var(--reko-yellow);color:#172018;font-weight:750}
 @media(max-width:600px){.trova-header .trova-utility span{display:none}.trova-header .trova-utility{min-width:44px;min-height:44px;padding:8px}.trova-header>div{gap:4px}}
 .trova-candidate-list>article.is-selected{border-color:var(--reko-accent-ink)}

@@ -88,6 +88,14 @@ class User extends Authenticatable implements PasskeyUser
     }
 
     /**
+     * @return HasMany<TrovaSavedSearch, $this>
+     */
+    public function trovaSavedSearches(): HasMany
+    {
+        return $this->hasMany(TrovaSavedSearch::class);
+    }
+
+    /**
      * @return HasMany<AgencyRequest, $this>
      */
     public function agencyRequests(): HasMany

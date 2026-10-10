@@ -17,17 +17,17 @@ final class Navigation
 {
     /** key => [label, icon, route|null] ; null is reserved for sections suspended in the source app. */
     public const SECTIONS = [
-        'Panoramica' => ['Oggi', 'home', 'gestionale.home'],
+        'Panoramica' => ['Oggi', 'layout-dashboard', 'gestionale.home'],
         'Scout zone' => ['Mappa e zone', 'map', 'gestionale.scouting.index'],
-        'Scouting Area' => ['Archivio catastale', 'archive-box', 'gestionale.archive.index'],
-        'Immobili a portafoglio' => ['Immobili a portafoglio', 'building-office-2', 'gestionale.properties.index'],
-        'Clienti' => ['Clienti', 'users', 'gestionale.clients.index'],
-        'Investitori' => ['Investitori', 'banknotes', null],
-        'Richieste' => ['Richieste', 'clipboard-document-list', 'gestionale.requests.index'],
+        'Scouting Area' => ['Archivio catastale', 'building-2', 'gestionale.archive.index'],
+        'Immobili a portafoglio' => ['Immobili a portafoglio', 'building-2', 'gestionale.properties.index'],
+        'Clienti' => ['Clienti', 'users-round', 'gestionale.clients.index'],
+        'Investitori' => ['Investitori', 'users-round', null],
+        'Richieste' => ['Richieste', 'clipboard-list', 'gestionale.requests.index'],
         'Attività' => ['Agenda', 'calendar-days', 'gestionale.activities.index'],
-        'Pratiche di acquisizione' => ['Pratiche di acquisizione', 'document-text', null],
-        'Obiettivi' => ['Obiettivi', 'flag', 'gestionale.goals.index'],
-        'Impostazioni CRM' => ['Impostazioni', 'cog-6-tooth', 'gestionale.settings.index'],
+        'Pratiche di acquisizione' => ['Pratiche di acquisizione', 'file-up', null],
+        'Obiettivi' => ['Obiettivi', 'target', 'gestionale.goals.index'],
+        'Impostazioni CRM' => ['Impostazioni', 'settings-2', 'gestionale.settings.index'],
     ];
 
     /** Hidden in the current gestionale UI (context.tsx / navigation.ts) or excluded. */
@@ -94,6 +94,30 @@ final class Navigation
         }
 
         return $result;
+    }
+
+    /**
+     * Section a gestionale route belongs to (breadcrumb and role gate); null for pages
+     * outside the sections, like the profile choice.
+     */
+    public static function sectionForRoute(?string $routeName): ?string
+    {
+        if ($routeName === null) {
+            return null;
+        }
+        foreach (self::SECTIONS as $key => [, , $route]) {
+            if ($route !== null && \Illuminate\Support\Str::is(str_replace('.index', '.*', $route), $routeName)) {
+                return $key;
+            }
+        }
+
+        return null;
+    }
+
+    /** Breadcrumb / sidebar label of a section (navigation.ts navigationLabel). */
+    public static function label(string $key): string
+    {
+        return self::SECTIONS[$key][0] ?? $key;
     }
 
     public static function slug(string $key): string

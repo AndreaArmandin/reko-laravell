@@ -20,7 +20,7 @@ class ScoutingZone extends Model
 
     protected function casts(): array
     {
-        return ['municipalities' => 'array', 'starts_on' => 'date'];
+        return ['municipalities' => 'array', 'plan' => 'array', 'starts_on' => 'date', 'updated_at' => 'immutable_datetime'];
     }
 
     /**

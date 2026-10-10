@@ -1,0 +1,16 @@
+/* Foglio di stile del Gestionale: i CSS dell'originale, caricati nello stesso ordine
+   di client/main.tsx e components/prototype/crm/index.tsx. */
+@import './app.css';
+@import './gestionale/brand.css';
+@import './gestionale/globals.css';
+@import './gestionale/prototype.css';
+@import './gestionale/workspace.css';
+@import './gestionale/crm.css';
+@import './gestionale/website.css';
+@import './gestionale/urban.css';
+@import './gestionale/usability.css';
+@import './gestionale/daily-use.css';
+@import './gestionale/operational.css';
+@import './gestionale/cartography-reference.css';
+@import './gestionale/nav-links.css';
+@import './gestionale/laravel-adapter.css';

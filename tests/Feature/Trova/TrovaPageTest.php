@@ -2,6 +2,14 @@
 
 use App\Models\TrovaFavorite;
 use App\Models\TrovaSearchHistoryEntry;
+use App\Models\TrovaSavedSearch;
+use App\Models\AgencyMembership;
+use App\Models\CadastralUnit;
+use App\Models\CadastralUnitVersion;
+use App\Models\CatalogRelease;
+use App\Models\Municipality;
+use App\Models\MunicipalityCatalog;
+use App\Models\Parcel;
 use App\Models\User;
 use Database\Seeders\DemoOsmCatalogSeeder;
 use Illuminate\Support\Facades\DB;
@@ -138,6 +146,61 @@ it('saves a result and repeats a recent search', function () {
     $entry = TrovaSearchHistoryEntry::query()->firstOrFail();
     Livewire::test('pages::trova.index')->call('repeat', $entry->id)
         ->assertSet('step', 'results')->assertSet('choice', 'garage')->assertSet('min', '10');
+});
+
+it('saves named searches permanently and keeps them private to their owner', function () {
+    $page = Livewire::test('pages::trova.index')
+        ->set('code', 'X002')->call('choose', 'garage')->call('next')
+        ->call('setZoneMethod', 'all')->call('next')
+        ->set('min', '10')->set('max', '30')->call('next')
+        ->set('savedSearchName', 'Ricerca per Pina Fantozzi')->call('saveSearch')
+        ->assertHasNoErrors('savedSearchName');
+
+    $saved = TrovaSavedSearch::query()->where('user_id', $this->user->id)->sole();
+    expect($saved->name)->toBe('Ricerca per Pina Fantozzi')
+        ->and($saved->criteria['code'])->toBe('X002')
+        ->and($saved->total)->toBeGreaterThan(0);
+
+    $otherUser = User::factory()->create();
+    $foreign = TrovaSavedSearch::query()->create([
+        'user_id' => $otherUser->id, 'name' => 'Ricerca privata', 'criteria' => $saved->criteria,
+        'total' => $saved->total, 'completed_at' => now(),
+    ]);
+
+    $page->call('repeatSavedSearch', $foreign->id)->assertSet('step', 'results');
+    expect(TrovaSavedSearch::query()->find($foreign->id))->not->toBeNull();
+
+    $page->call('removeSavedSearch', $foreign->id);
+    expect(TrovaSavedSearch::query()->find($foreign->id))->not->toBeNull();
+
+    $page->call('repeatSavedSearch', $saved->id)->assertSet('step', 'results')->assertSet('choice', 'garage');
+});
+
+it('sends Trova result parcels to the cadastral archive without creating portfolio properties', function () {
+    $membership = AgencyMembership::factory()->admin()->create(['user_id' => $this->user->id]);
+
+    $municipality = Municipality::query()->create(['cadastral_code' => 'Y777', 'name' => 'Comune Archivio Test']);
+    $release = CatalogRelease::query()->create(['municipality_id' => $municipality->id, 'code' => 'Y777-TEST', 'label' => 'Catalogo test', 'status' => 'active']);
+    MunicipalityCatalog::query()->create(['municipality_id' => $municipality->id, 'catalog_release_id' => $release->id]);
+    $parcel = Parcel::query()->create(['municipality_id' => $municipality->id, 'cadastral_kind' => 'F', 'section' => '', 'sheet' => '1', 'number' => '12']);
+    $unit = CadastralUnit::query()->create(['parcel_id' => $parcel->id, 'subalterno' => '1', 'legacy_key' => '["Y777","Fabbricati","","1","12","1"]']);
+    CadastralUnitVersion::query()->create([
+        'cadastral_unit_id' => $unit->id, 'catalog_release_id' => $release->id, 'status' => 'eligible',
+        'category' => 'A/2', 'search_group' => \App\Trova\Categories::group('A/2'),
+        'consistency' => 4, 'consistency_unit' => 'vani', 'address_raw' => 'VIA TEST n. 12 Piano 1',
+    ]);
+
+    $page = Livewire::test('pages::trova.index')
+        ->set('code', 'Y777')->call('choose', 'homes')->call('next')
+        ->call('setZoneMethod', 'all')->call('next')->set('housing', 'apartment')
+        ->set('min', '3')->set('max', '5')->call('next')
+        ->assertSet('step', 'results')->assertSet('error', null);
+
+    expect($page->get('rows'))->toHaveCount(1);
+    $page->call('addResultToCensus', $parcel->id)->assertDispatched('crm-notice');
+
+    expect(DB::table('agency_unit_observations')->where('cadastral_unit_id', $unit->id)->exists())->toBeTrue()
+        ->and(DB::table('properties')->where('agency_id', $membership->agency_id)->count())->toBe(0);
 });
 
 it('hides database errors behind a retry and repeats the same search', function () {

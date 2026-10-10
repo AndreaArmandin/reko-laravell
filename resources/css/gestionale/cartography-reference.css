@@ -1,0 +1,17 @@
+.reko-surface-reference{display:flex;align-items:center;justify-content:center;width:28px;height:28px;border:2px solid #fff;border-radius:50%;background:#7c3aed;color:#fff;box-shadow:0 1px 6px #0009;font-size:17px;line-height:1;cursor:pointer}
+.reko-surface-reference:focus-visible{outline:3px solid #ffd21c;outline-offset:3px}
+.proto-dialog[open]:has(.crm-public-zone-content) { display:flex;flex-direction:column;width:min(960px,calc(100vw - 24px));height:min(780px,calc(100dvh - 24px));max-height:calc(100dvh - 24px);padding:18px;overflow:hidden; }
+.proto-dialog:has(.crm-public-zone-content) .proto-dialog-heading { flex:none;margin-bottom:12px;padding-bottom:12px; }
+.proto-dialog:has(.crm-public-zone-content) .proto-eyebrow { font-size:11px;line-height:1.4; }
+.crm-public-zone-content.crm-form { flex:1;min-height:0;display:grid;grid-template-rows:auto minmax(60px,1fr) auto auto auto;gap:10px;padding:0; }
+.crm-public-zone-content label { display:grid;gap:4px;font-size:14px; }
+.crm-public-zone-content select { width:100%;height:44px; }
+.crm-public-zone-content p { margin:0;font-size:14px;line-height:1.3; }
+.crm-public-zone-content small { font-size:11px;line-height:1.4; }
+.crm-public-zone-content .crm-actions { display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:0; }
+.crm-public-zone-content .crm-actions button { width:100%;min-height:44px;font-size:14px;padding:8px; }
+.crm-public-zone-map { min-height:0; border:1px solid #46504c; border-radius:12px; overflow:hidden; }
+.crm-public-zone-map .leaflet-tile-pane { filter: none; }
+.crm-public-zone-map .leaflet-container .leaflet-control-attribution { background:#FFFFFF;color:#202725;font-size:10px; }
+.crm-public-zone-map .leaflet-container .leaflet-control-attribution a { color:#3f390b; }
+@media(max-height:540px) { .crm-public-zone-content small { display:none; } .crm-public-zone-content.crm-form { grid-template-rows:auto minmax(60px,1fr) auto auto;gap:6px; } }

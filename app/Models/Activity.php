@@ -16,11 +16,17 @@ class Activity extends Model
 
     protected $table = 'activities';
 
+    /** updated_at is the optimistic revision of the activity commands: keep microseconds. */
+    protected $dateFormat = 'Y-m-d H:i:s.u';
+
     protected $guarded = ['id'];
 
     protected function casts(): array
     {
         return [
+            'internal' => 'boolean',
+            'answered' => 'boolean',
+            'amount' => 'float',
             'scheduled_at' => 'datetime',
             'completed_at' => 'datetime',
             'outcome_confirmed_at' => 'datetime',
@@ -89,5 +95,61 @@ class Activity extends Model
     public function events(): HasMany
     {
         return $this->hasMany(ActivityEvent::class);
+    }
+
+    /**
+     * Owner linked to the activity (ownerId): a contact of the agency.
+     *
+     * @return BelongsTo<Contact, $this>
+     */
+    public function owner(): BelongsTo
+    {
+        return $this->belongsTo(Contact::class, 'owner_contact_id');
+    }
+
+    /**
+     * @return BelongsTo<User, $this>
+     */
+    public function assignee(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'assigned_to_user_id');
+    }
+
+    /**
+     * @return BelongsTo<User, $this>
+     */
+    public function creator(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'created_by_user_id');
+    }
+
+    /**
+     * @return BelongsTo<Parcel, $this>
+     */
+    public function parcel(): BelongsTo
+    {
+        return $this->belongsTo(Parcel::class);
+    }
+
+    /**
+     * @return BelongsTo<Activity, $this>
+     */
+    public function previousActivity(): BelongsTo
+    {
+        return $this->belongsTo(self::class, 'previous_activity_id');
+    }
+
+    /**
+     * @return BelongsTo<Activity, $this>
+     */
+    public function nextActivity(): BelongsTo
+    {
+        return $this->belongsTo(self::class, 'next_activity_id');
+    }
+
+    /** types.ts status: Completata (done) */
+    public function isDone(): bool
+    {
+        return $this->status === 'Completata';
     }
 }

@@ -1,7 +1,7 @@
 <x-layouts::app :title="__('Dashboard')">
     @php
         $memberships = app(\App\Gestionale\CurrentAgency::class)->available();
-        $roles = ['admin' => 'Responsabile', 'crm' => 'Segreteria', 'scout' => 'Operatore'];
+        $roles = ['admin' => 'Responsabile', 'crm' => 'Segreteria', 'scout' => 'Agente acquisizioni'];
     @endphp
 
     <div class="mx-auto flex w-full max-w-6xl flex-col gap-8">

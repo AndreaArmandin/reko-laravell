@@ -6,11 +6,10 @@ use App\Gestionale\CommandRejected;
 use App\Gestionale\CurrentAgency;
 use App\Models\AgencyMembership;
 use Closure;
-use Flux\Flux;
 
 /**
  * Livewire pages of the gestionale: the acting membership and command execution with the
- * gestionale messages shown next to the field (or as 'command') and as a toast.
+ * gestionale messages shown next to the field (or as 'command') and in the shared REKO feedback.
  */
 trait HandlesCommands
 {
@@ -33,13 +32,13 @@ trait HandlesCommands
             $result = $command();
         } catch (CommandRejected $e) {
             $this->addError($e->field ?? 'command', $e->getMessage());
-            Flux::toast(variant: 'danger', text: $e->getMessage());
+            $this->dispatch('crm-notice', type: 'error', text: $e->getMessage());
 
             return null;
         }
 
         if ($success !== null) {
-            Flux::toast(variant: 'success', text: $success);
+            $this->dispatch('crm-notice', type: 'success', text: $success);
         }
 
         return $result;

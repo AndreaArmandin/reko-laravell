@@ -38,7 +38,7 @@ class AppServiceProvider extends ServiceProvider
     {
         $this->configureDefaults();
 
-        Livewire::addPersistentMiddleware([CheckUserIsAdmin::class]);
+        Livewire::addPersistentMiddleware([CheckUserIsAdmin::class, \App\Http\Middleware\EnsureCurrentAgency::class]);
 
         $this->configureGestionale();
     }

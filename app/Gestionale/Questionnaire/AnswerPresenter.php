@@ -90,6 +90,47 @@ final class AnswerPresenter
             : $question['text'];
     }
 
+    /** request-labels.ts operatorReason(): the built-in question wording of a match reason becomes the operator's wording. */
+    public static function operatorReason(string $reason): string
+    {
+        foreach (Questionnaire::defaultQuestions() as $question) {
+            if (isset(self::OPERATOR_LABELS[$question['id']])) {
+                $reason = \Illuminate\Support\Str::replaceFirst($question['text'], self::OPERATOR_LABELS[$question['id']], $reason);
+            }
+        }
+
+        return $reason;
+    }
+
+    /**
+     * request-labels.ts comparisonAnswerLabel(): the comparison text saved with a match, formatted for reading
+     * (dates, money, m²). Old comparisons stay faithful: the saved text is parsed, not recomputed.
+     */
+    public static function comparisonAnswerLabel(string $id, string $label): string
+    {
+        if (in_array($id, ['availableBy', 'availableFrom', 'dueDate'], true) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $label)) {
+            return self::date($label);
+        }
+        $numeric = '([0-9]+(?:\.[0-9]{3})*(?:,[0-9]+)?)';
+        $scalar = preg_match('/^'.$numeric.'$/', $label, $s) === 1;
+        $range = preg_match('/^(?:da '.$numeric.')?(?: ?a '.$numeric.')?$/', $label, $r) === 1;
+        $parse = fn (string $n) => (float) str_replace(',', '.', str_replace('.', '', $n));
+        $hasRange = $range && (($r[1] ?? '') !== '' || ($r[2] ?? '') !== '');
+        if (in_array($id, self::MONEY, true)) {
+            if ($scalar) {
+                return self::money($parse($s[1]));
+            }
+            if ($hasRange) {
+                return self::money(array_filter(['min' => ($r[1] ?? '') !== '' ? $parse($r[1]) : null, 'max' => ($r[2] ?? '') !== '' ? $parse($r[2]) : null], fn ($v) => $v !== null));
+            }
+        }
+        if ($id === 'area' && ($scalar || $hasRange)) {
+            return $label.' m²';
+        }
+
+        return $label;
+    }
+
     public static function number(int|float $n): string
     {
         return number_format($n, floor($n) == $n ? 0 : 2, ',', '.');
@@ -196,7 +237,7 @@ final class AnswerPresenter
     {
         return match ($question['type']) {
             'boolean' => $value === true ? '1' : ($value === false ? '0' : ''),
-            'multi' => $question['id'] === 'tags' ? implode(', ', (array) $value) : array_values((array) ($value ?? [])),
+            'multi' => array_values((array) ($value ?? [])),
             'range' => ['min' => (string) ($value['min'] ?? ''), 'max' => (string) ($value['max'] ?? '')],
             'financing' => ['amount' => (string) ($value['amount'] ?? ''), 'percent' => (string) ($value['percent'] ?? '')],
             'zone' => ['label' => (string) ($value['label'] ?? ''), 'lat' => (string) ($value['lat'] ?? ''), 'lng' => (string) ($value['lng'] ?? ''), 'radius' => (string) ($value['radius'] ?? '')],
@@ -226,8 +267,9 @@ final class AnswerPresenter
 
         return match ($question['type']) {
             'boolean' => $field === '1' || $field === true ? true : (($field === '0' || $field === false) ? false : null),
-            'multi' => $question['id'] === 'tags'
-                ? (($t = array_values(array_filter(array_map('trim', explode(',', (string) $field)), fn ($x) => $x !== ''))) === [] ? null : $t)
+            // Tags come from the chip input as a list; a comma separated text is still accepted.
+            'multi' => $question['id'] === 'tags' && is_string($field)
+                ? (($t = array_values(array_filter(array_map('trim', explode(',', $field)), fn ($x) => $x !== ''))) === [] ? null : $t)
                 : (($m = array_values(array_filter((array) $field, fn ($x) => is_string($x) && $x !== ''))) === [] ? null : $m),
             'range' => is_array($field) ? $object(['min', 'max']) : null,
             'financing' => is_array($field) ? $object(['amount', 'percent']) : null,

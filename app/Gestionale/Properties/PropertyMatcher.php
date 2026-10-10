@@ -2,64 +2,133 @@
 
 namespace App\Gestionale\Properties;
 
+use App\Gestionale\Questionnaire\AnswerPresenter;
 use App\Gestionale\Questionnaire\Questionnaire;
+use App\Gestionale\Questionnaire\Tags;
 use App\Models\GestionaleSetting;
 use App\Models\Property;
 use App\Models\PropertyMatch;
 use App\Models\PropertyRequest;
 use Illuminate\Support\Facades\DB;
 
-/** Port of gestionale/lib/crm/matching.ts. Personal and practice-only fields never affect compatibility. */
+/**
+ * Port of gestionale/lib/crm/matching.ts (matchScore) and engine.ts recalculate(): every request is compared
+ * with every property of the agency, whatever their status. Personal and practice-only fields never affect
+ * compatibility. The match workflow fields (status, feedback, note, next action, visit) survive a recalculation.
+ */
 final class PropertyMatcher
 {
-    private const WEIGHTS = ['zone' => 20, 'budget' => 20, 'type' => 15, 'surface' => 10, 'rooms' => 10, 'required' => 15, 'preferred' => 5, 'availability' => 5];
+    public const DEFAULT_WEIGHTS = ['zone' => 20, 'budget' => 20, 'type' => 15, 'surface' => 10, 'rooms' => 10, 'required' => 15, 'preferred' => 5, 'availability' => 5];
 
-    /** @return array{score:?int, confidence:string, compared:int, answered:int, coverage:float, conditional:bool, comparisons:array, version:int, reasons:array, level:string} */
-    public function score(PropertyRequest $request, Property $property): array
+    public const DEFAULT_NEXT_ACTION = 'Valuta i requisiti e il prossimo passo';
+
+    /**
+     * What a score needs from the agency, loaded once per recalculation: questionnaire, weights, settings version.
+     *
+     * @return array{questions: Questionnaire, weights: array<string, int|float>, version: int}
+     */
+    public function context(int $agencyId): array
     {
-        $questions = Questionnaire::forAgency((int) $request->agency_id);
-        $settings = GestionaleSetting::query()->where('agency_id', $request->agency_id)->first();
-        $weights = array_replace(self::WEIGHTS, $settings?->matching_weights ?? []);
+        $settings = GestionaleSetting::query()->where('agency_id', $agencyId)->first();
+
+        return [
+            'questions' => Questionnaire::forAgency($agencyId),
+            'weights' => array_replace(self::DEFAULT_WEIGHTS, $settings?->matching_weights ?? []),
+            'version' => (int) ($settings?->version ?? 1),
+        ];
+    }
+
+    /**
+     * @param  array{questions: Questionnaire, weights: array<string, int|float>, version: int}|null  $context
+     * @return array{score:?int, confidence:string, compared:int, answered:int, coverage:float, conditional:bool, comparisons:array, version:int, reasons:array, level:string}
+     */
+    public function score(PropertyRequest $request, Property $property, ?array $context = null): array
+    {
+        $context ??= $this->context((int) $request->agency_id);
+        $questions = $context['questions'];
+        $criteria = $request->criteria ?? [];
+        $classifications = $request->classifications ?? [];
         $comparisons = [];
         $questionWeights = [];
 
-        foreach ($questions->visible($request->criteria ?? []) as $question) {
+        foreach ($questions->visible($criteria) as $question) {
             $id = (string) $question['id'];
-            $expected = $request->criteria[$id] ?? null;
-            $classification = $request->classifications[$id] ?? $question['classification'] ?? 'Preferibile';
-            if (! ($question['field'] ?? null) || ($question['sensitive'] ?? false) || ! Questionnaire::hasAnswer($expected) || $classification === 'Indifferente') continue;
-            if (($question['type'] ?? '') === 'range' && is_numeric($expected)) {
-                $expected = in_array($id, ['budget', 'fees'], true) ? ['max' => (float) $expected] : ['min' => (float) $expected];
+            $saved = $criteria[$id] ?? null;
+            $expected = ($question['type'] ?? '') === 'range' && (is_int($saved) || is_float($saved))
+                ? (in_array($id, ['budget', 'fees'], true) ? ['max' => $saved] : ['min' => $saved])
+                : $saved;
+            $classification = $classifications[$id] ?? $question['classification'] ?? 'Preferibile';
+            if (! ($question['field'] ?? null) || ($question['sensitive'] ?? false) || ! Questionnaire::hasAnswer($expected) || $classification === 'Indifferente') {
+                continue;
+            }
+            $field = (string) $question['field'];
+
+            if ($field === 'tags' && is_array($expected)) {
+                $tags = Tags::normalize(array_values(array_filter($expected, 'is_string')));
+                foreach ($tags as $tag) {
+                    $evidence = Tags::evidence($property, $tag);
+                    // A tag already covered by its structured question (same value, same priority) is not counted twice.
+                    $structured = $evidence['field'] ? $questions->question($evidence['field']) : null;
+                    if ($structured !== null && ($criteria[$structured['id']] ?? null) === $evidence['requested']
+                        && ($classifications[$structured['id']] ?? $structured['classification']) === $classification) {
+                        continue;
+                    }
+                    $status = $evidence['status'] === 'unknown' || $classification !== 'Da escludere'
+                        ? $evidence['status'] : ($evidence['status'] === 'satisfied' ? 'missing' : 'satisfied');
+                    $tagId = 'tags:'.Tags::key($tag);
+                    $comparisons[] = [
+                        'id' => $tagId, 'label' => 'Tag: '.$tag,
+                        'bucket' => in_array($classification, ['Indispensabile', 'Da escludere'], true) ? 'required' : 'preferred',
+                        'classification' => $classification, 'status' => $status, 'expected' => $tag, 'actual' => $evidence['actual'],
+                        'value' => $status === 'satisfied' ? 1 : 0,
+                    ];
+                    $questionWeights[$tagId] = (float) ($question['weight'] ?? 1) / max(1, count($tags));
+                }
+
+                continue;
             }
 
-            $field = (string) $question['field'];
             $actual = match ($field) {
-                'zones' => $property->zone ?: $property->city,
+                'zones' => $property->zone,
                 'coordinates' => $this->distanceMatches($property, $expected),
-                default => $property->features[$field] ?? null,
+                default => ($property->features ?? [])[$field] ?? null,
             };
-            if ($id === 'works') $actual = isset($property->features['condition']) ? $property->features['condition'] === 'Da ristrutturare' : null;
-            $incompatibleContract = $field === 'price' && Questionnaire::hasAnswer($request->criteria['operation'] ?? null)
-                && $request->criteria['operation'] !== ($property->features['operation'] ?? null);
+            if ($id === 'works') {
+                $condition = ($property->features ?? [])['condition'] ?? null;
+                $actual = Questionnaire::hasAnswer($condition) ? $condition === 'Da ristrutturare' : null;
+            }
+            $incompatibleContract = $field === 'price' && Questionnaire::hasAnswer($criteria['operation'] ?? null)
+                && $criteria['operation'] !== (($property->features ?? [])['operation'] ?? null);
             $known = Questionnaire::hasAnswer($actual) && ! $incompatibleContract;
-            $satisfied = $known && $this->compare($expected, $actual, (string) ($question['operator'] ?? 'equal'));
-            if ($classification === 'Da escludere' && $known) $satisfied = ! $satisfied;
+            $satisfied = false;
+            if ($known) {
+                if ($id === 'works') {
+                    $satisfied = $expected === true || $actual === false;
+                } else {
+                    $satisfied = $this->compare($expected, $actual, (string) ($question['operator'] ?? 'equal'));
+                }
+                if ($classification === 'Da escludere') {
+                    $satisfied = ! $satisfied;
+                }
+            }
             $bucket = ($question['bucket'] ?? 'preferred') === 'preferred' && in_array($classification, ['Indispensabile', 'Da escludere'], true)
                 ? 'required' : ($question['bucket'] ?? 'preferred');
-            $status = ! $known ? 'unknown' : ($satisfied ? 'satisfied' : 'missing');
             $comparisons[] = [
                 'id' => $id, 'label' => $question['text'], 'bucket' => $bucket, 'classification' => $classification,
-                'status' => $status, 'expected' => $this->label($expected),
-                'actual' => $incompatibleContract ? 'Contratto diverso: importi non confrontabili' : $this->label($actual), 'value' => $satisfied ? 1 : 0,
+                'status' => ! $known ? 'unknown' : ($satisfied ? 'satisfied' : 'missing'), 'expected' => AnswerPresenter::label($expected),
+                'actual' => $incompatibleContract ? 'Contratto diverso: importi non confrontabili' : ($field === 'coordinates' ? ($actual === null ? 'Da definire' : trim((string) $property->zone).' · entro 0 km') : AnswerPresenter::label($actual)),
+                'value' => $satisfied ? 1 : 0,
             ];
             $questionWeights[$id] = (float) ($question['weight'] ?? 1);
         }
 
         $numerator = $denominator = 0.0;
-        foreach ($weights as $bucket => $groupWeight) {
+        foreach ($context['weights'] as $bucket => $groupWeight) {
             $group = array_values(array_filter($comparisons, fn ($item) => $item['bucket'] === $bucket && $item['status'] !== 'unknown'));
             $total = array_sum(array_map(fn ($item) => $questionWeights[$item['id']] ?? 1, $group));
-            if ($total <= 0 || (float) $groupWeight <= 0) continue;
+            if ($total <= 0 || (float) $groupWeight <= 0) {
+                continue;
+            }
             $denominator += (float) $groupWeight;
             $numerator += (float) $groupWeight * array_sum(array_map(fn ($item) => $item['value'] * ($questionWeights[$item['id']] ?? 1), $group)) / $total;
         }
@@ -73,75 +142,106 @@ final class PropertyMatcher
             'confidence' => $compared >= 10 && $coverage >= .8 ? 'Alta' : ($compared >= 5 && $coverage >= .6 ? 'Media' : 'Indicativa'),
             'compared' => $compared, 'answered' => count($comparisons), 'coverage' => $coverage,
             'conditional' => (bool) array_filter($comparisons, fn ($item) => $item['status'] !== 'satisfied' && in_array($item['classification'], ['Indispensabile', 'Da escludere'], true)),
-            'comparisons' => $comparisons, 'version' => 1, 'reasons' => array_values($reasons),
+            'comparisons' => $comparisons, 'version' => $context['version'], 'reasons' => array_values($reasons),
             'level' => $score === null ? 'Da valutare' : ($score >= 80 ? 'Alta' : ($score >= 60 ? 'Buona' : ($score >= 40 ? 'Parziale' : 'Bassa'))),
         ];
     }
 
+    /** One request against every property of the agency (status and archive never exclude a property, as in engine.ts recalculate). */
     public function refreshRequest(PropertyRequest $request): void
     {
-        DB::transaction(function () use ($request) {
-            Property::query()->where('agency_id', $request->agency_id)->whereNull('lifecycle_state')->whereIn('status', ['Attivo', 'In trattativa'])
-                ->orderBy('id')->chunkById(100, function ($properties) use ($request) {
+        $context = $this->context((int) $request->agency_id);
+        DB::transaction(function () use ($request, $context) {
+            Property::query()->where('agency_id', $request->agency_id)->orderBy('id')
+                ->chunkById(100, function ($properties) use ($request, $context) {
                     foreach ($properties as $property) {
-                        $result = $this->score($request, $property);
-                        PropertyMatch::query()->updateOrCreate(
-                            ['agency_id' => $request->agency_id, 'property_id' => $property->id, 'property_request_id' => $request->id],
-                            ['score' => $result['score'], 'result' => $result, 'updated_at' => now()],
-                        );
+                        $this->store($request, $property, $this->score($request, $property, $context));
                     }
                 });
         });
     }
 
+    /** One property against every request of the agency. */
     public function refreshProperty(Property $property): void
     {
-        PropertyRequest::query()->where('agency_id', $property->agency_id)->whereNull('lifecycle_state')->orderBy('id')->chunkById(100,
-            function ($requests) use ($property) {
+        $context = $this->context((int) $property->agency_id);
+        PropertyRequest::query()->where('agency_id', $property->agency_id)->orderBy('id')->chunkById(100,
+            function ($requests) use ($property, $context) {
                 foreach ($requests as $request) {
-                    $result = $this->score($request, $property);
-                    PropertyMatch::query()->updateOrCreate(
-                        ['agency_id' => $property->agency_id, 'property_id' => $property->id, 'property_request_id' => $request->id],
-                        ['score' => $result['score'], 'result' => $result, 'updated_at' => now()],
-                    );
+                    $this->store($request, $property, $this->score($request, $property, $context));
                 }
             });
     }
 
+    /** Every request against every property (settings or questionnaire changed). */
+    public function refreshAgency(int $agencyId): void
+    {
+        PropertyRequest::query()->where('agency_id', $agencyId)->orderBy('id')->each(fn ($request) => $this->refreshRequest($request));
+    }
+
+    /** @param array<string, mixed> $result */
+    private function store(PropertyRequest $request, Property $property, array $result): void
+    {
+        $match = PropertyMatch::query()->firstOrNew(['agency_id' => $request->agency_id, 'property_id' => $property->id, 'property_request_id' => $request->id]);
+        if (! $match->exists) {
+            $match->next_action = self::DEFAULT_NEXT_ACTION;
+        }
+        $match->score = $result['score'];
+        $match->result = $result;
+        $match->updated_at = now();
+        $match->save();
+    }
+
     private function distanceMatches(Property $property, mixed $expected): ?bool
     {
-        if (! is_array($expected) || ! isset($expected['lat'], $expected['lng'], $expected['radius'])) return null;
+        if (! is_array($expected) || ! isset($expected['lat'], $expected['lng'], $expected['radius'])) {
+            return null;
+        }
         $result = DB::selectOne('SELECT ST_DWithin(location::geography, ST_SetSRID(ST_MakePoint(?, ?), 4326)::geography, ?) AS matches FROM properties WHERE id = ? AND agency_id = ? AND location IS NOT NULL',
             [(float) $expected['lng'], (float) $expected['lat'], (float) $expected['radius'] * 1000, $property->id, $property->agency_id]);
+
         return $result === null ? null : (bool) $result->matches;
     }
 
+    /** matching.ts compare(). */
     private function compare(mixed $expected, mixed $actual, string $operator): bool
     {
-        if ($operator === 'maximum') return is_numeric($actual) && (float) $actual <= (float) $expected;
-        if ($operator === 'minimum') return is_numeric($actual) && (float) $actual >= (float) $expected;
-        if ($operator === 'date') return (string) $actual <= (string) $expected;
-        if ($operator === 'distance') return $actual === true;
-        if ($operator === 'range' && is_array($expected)) {
-            return (! isset($expected['min']) || (float) $actual >= (float) $expected['min'])
-                && (! isset($expected['max']) || (float) $actual <= (float) $expected['max']);
+        if ($operator === 'maximum') {
+            return is_numeric($actual) && (float) $actual <= (float) $expected;
+        }
+        if ($operator === 'minimum') {
+            return is_numeric($actual) && (float) $actual >= (float) $expected;
+        }
+        if ($operator === 'date') {
+            return mb_substr($this->text($actual), 0, 10) <= mb_substr($this->text($expected), 0, 10);
+        }
+        if ($operator === 'distance') {
+            return $actual === true;
+        }
+        if ($operator === 'range' && is_array($expected) && ! array_is_list($expected)) {
+            return (! isset($expected['min']) || (is_numeric($actual) && (float) $actual >= (float) $expected['min']))
+                && (! isset($expected['max']) || (is_numeric($actual) && (float) $actual <= (float) $expected['max']));
         }
         if (is_array($expected)) {
-            if (in_array('Tutta Milano', $expected, true)) return true;
-            return is_array($actual) ? array_diff($expected, $actual) === [] : in_array(mb_strtolower((string) $actual), array_map(fn ($item) => mb_strtolower((string) $item), $expected), true);
+            if (in_array('Tutta Milano', $expected, true)) {
+                return true;
+            }
+
+            return is_array($actual) ? array_diff($expected, $actual) === [] : in_array($this->text($actual), $expected, true);
         }
-        return is_array($actual) ? in_array((string) $expected, $actual, true) : mb_strtolower((string) $actual) === mb_strtolower((string) $expected);
+
+        return is_array($actual) ? in_array($this->text($expected), $actual, true) : mb_strtolower($this->text($actual)) === mb_strtolower($this->text($expected));
     }
 
-    private function label(mixed $value): string
+    /** JavaScript String() for scalars. */
+    private function text(mixed $value): string
     {
-        if ($value === null || $value === '') return 'Da definire';
-        if ($value === true) return 'Sì';
-        if ($value === false) return 'No';
-        if (is_array($value)) {
-            if (array_is_list($value)) return implode(', ', $value);
-            return implode(' ', array_filter([isset($value['min']) ? 'da '.$value['min'] : '', isset($value['max']) ? 'a '.$value['max'] : '', isset($value['radius']) ? 'entro '.$value['radius'].' km' : '']));
-        }
-        return is_numeric($value) ? number_format((float) $value, 0, ',', '.') : (string) $value;
+        return match (true) {
+            $value === true => 'true',
+            $value === false => 'false',
+            $value === null => 'null',
+            is_array($value) => implode(',', $value),
+            default => (string) $value,
+        };
     }
 }

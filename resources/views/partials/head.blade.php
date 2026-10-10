@@ -9,7 +9,7 @@
 
 @fonts
 
-@vite(['resources/css/app.css', 'resources/js/app.js'])
+@vite([$stylesheet ?? 'resources/css/app.css', 'resources/js/app.js'])
 @fluxAppearance
 {{-- Come Trova, REKO usa solo il tema chiaro --}}
 <script>window.Flux.applyAppearance('light')</script>

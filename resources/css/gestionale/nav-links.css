@@ -1,0 +1,11 @@
+/* Il menu del Gestionale usa <a> (Livewire navigate) al posto dei <button> dell'originale:
+   stesse regole di `nav button`, ripetute per `nav a`. Generato da urban/workspace/crm/... */
+body .crm-app .crm-sidebar nav a[aria-current]{background:var(--ui-primary);color:var(--ui-on-primary);box-shadow:inset 4px 0 #fff}
+body .crm-app .crm-sidebar nav a[aria-current] svg{color:var(--ui-on-primary)}
+body .crm-app .crm-sidebar nav a:not([aria-current]):hover{background:var(--ui-primary-soft)}
+.crm-sidebar nav a{white-space:normal;min-height:48px}
+.crm-app .crm-sidebar nav a{font-size:1.125rem;min-height:46px;line-height:1.4}
+.crm-sidebar nav a{display:flex;align-items:center;gap:11px;padding:12px 11px;text-align:left;border-radius:7px;color:var(--ui-muted);font-size:1.125rem;line-height:1.2;min-height:45px}
+.crm-sidebar nav a:hover{background:var(--ui-soft)}
+.crm-sidebar nav a[aria-current]{background:var(--ui-signal);color:var(--ui-ink);font-weight:700}
+@media(min-width:1700px){.crm-sidebar nav a{font-size:1.125rem}}

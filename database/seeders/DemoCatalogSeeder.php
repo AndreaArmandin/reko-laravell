@@ -180,10 +180,18 @@ class DemoCatalogSeeder extends Seeder
     {
         // A few units have no subalterno, as in SISTER records.
         $withoutSub = mt_rand(1, 100) <= 2;
+        $sourceRef = $withoutSub ? "demo:{$parcel->id}:{$sub}" : null;
+        $legacyKey = [self::CODE, 'Fabbricati', (string) $parcel->section,
+            \App\Trova\CatalogSearch::cadastralId((string) $parcel->sheet), \App\Trova\CatalogSearch::cadastralId((string) $parcel->number),
+            $withoutSub ? '' : (string) $sub];
+        if ($withoutSub) {
+            $legacyKey[] = $sourceRef;
+        }
         $unit = CadastralUnit::query()->create([
             'parcel_id' => $parcel->id,
             'subalterno' => $withoutSub ? null : (string) $sub,
-            'source_ref' => $withoutSub ? "demo:{$parcel->id}:{$sub}" : null,
+            'source_ref' => $sourceRef,
+            'legacy_key' => json_encode($legacyKey, JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR),
         ]);
 
         $unitOfMeasure = Categories::dimensionUnit($category);

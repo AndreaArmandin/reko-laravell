@@ -67,9 +67,10 @@ class DemoOsmCatalogSeeder extends Seeder
             $release = CatalogRelease::query()->create([
                 'municipality_id' => $municipality->id,
                 'code' => 'DEMO-'.self::CODE,
-                'label' => 'Edifici OpenStreetMap, catasto inventato',
+                'label' => 'Edifici OSM · geometrie e catasto fittizi',
                 'released_on' => now()->toDateString(),
                 'status' => 'active',
+                'notes' => 'Dati dimostrativi: per poter provare la mappa, il contorno dell’edificio OSM è usato come geometria fittizia della particella. Non rappresenta un confine catastale reale.',
             ]);
 
             $buildings = $this->buildings($municipality, $release, $ways);
@@ -99,6 +100,12 @@ class DemoOsmCatalogSeeder extends Seeder
                     [$release->id, $buildingId, $parcel->id],
                 );
                 DB::insert(
+                    'INSERT INTO parcel_versions (parcel_id, catalog_release_id, area_sqm, boundary, created_at, updated_at)
+                     SELECT ?, ?, round(ST_Area(footprint::geography)::numeric, 2), footprint, now(), now()
+                     FROM building_versions WHERE building_id = ? AND catalog_release_id = ? AND footprint IS NOT NULL',
+                    [$parcel->id, $release->id, $buildingId, $release->id],
+                );
+                DB::insert(
                     "INSERT INTO parcel_search_points (parcel_id, catalog_release_id, source, location, created_at, updated_at)
                      SELECT ?, ?, 'osm-demo', ST_PointOnSurface(footprint), now(), now() FROM building_versions WHERE building_id = ? AND catalog_release_id = ?",
                     [$parcel->id, $release->id, $buildingId, $release->id],
@@ -116,6 +123,8 @@ class DemoOsmCatalogSeeder extends Seeder
             // Piani e classificazione abitativa, come l'indice precalcolato di Trova
             app(UnitFacts::class)->build($release->id);
         });
+
+        $this->call(DemoNeighborhoodSeeder::class);
 
         $units = CadastralUnitVersion::query()->whereHas('catalogRelease', fn ($q) => $q->where('code', 'DEMO-'.self::CODE))->count();
         $parcels = Parcel::query()->whereHas('municipality', fn ($q) => $q->where('cadastral_code', self::CODE))->count();
@@ -346,6 +355,8 @@ class DemoOsmCatalogSeeder extends Seeder
                 'parcel_id' => $parcel->id,
                 'subalterno' => $withoutSub ? null : (string) ($i + 1),
                 'source_ref' => $withoutSub ? "osm-demo:{$parcel->id}:".($i + 1) : null,
+                'legacy_key' => json_encode([self::CODE, 'Fabbricati', (string) $parcel->section, (string) $parcel->sheet,
+                    (string) $parcel->number, $withoutSub ? '' : (string) ($i + 1), ...($withoutSub ? ["osm-demo:{$parcel->id}:".($i + 1)] : [])], JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR),
                 'created_at' => now(),
                 'updated_at' => now(),
             ];

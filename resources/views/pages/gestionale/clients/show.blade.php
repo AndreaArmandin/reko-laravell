@@ -1,26 +1,28 @@
 <?php
 
-use App\Gestionale\Actions\Requests\SavePropertyRequest;
 use App\Gestionale\Actions\SetRecordLifecycle;
 use App\Gestionale\Livewire\HandlesCommands;
 use App\Gestionale\Questionnaire\ProfileFlow;
-use App\Gestionale\Questionnaire\Questionnaire;
 use App\Models\Contact;
 use App\Models\PropertyRequest;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Layout;
+use Livewire\Attributes\Title;
 use Livewire\Component;
 
 /*
- * Scheda cliente: recapiti, creatore del lead, dettagli, "Che cosa cerca" (la richiesta del cliente),
- * archiviazione e rimozione reversibili. Le attività arrivano con la fase Attività.
+ * Scheda cliente: recapiti, richieste, attività e conservazione reversibile come in clients.tsx.
  */
-new #[Layout('layouts::gestionale')] class extends Component {
+new #[Layout('layouts::gestionale'), Title('Scheda cliente')] class extends Component {
     use HandlesCommands;
 
     public Contact $contact;
 
     public bool $confirmRemove = false;
+
+    public bool $removeDialogOpen = false;
+
+    public bool $anonymizeInfoOpen = false;
 
     public function mount(Contact $contact): void
     {
@@ -32,7 +34,7 @@ new #[Layout('layouts::gestionale')] class extends Component {
     #[Computed]
     public function profile()
     {
-        return $this->contact->clientProfile()->with(['agent', 'createdBy', 'lifecycleBy'])->first();
+        return $this->contact->clientProfile()->with(['createdBy', 'lifecycleBy'])->first();
     }
 
     #[Computed]
@@ -42,138 +44,112 @@ new #[Layout('layouts::gestionale')] class extends Component {
             ->orderByDesc('updated_at')->orderByDesc('id')->get();
     }
 
-    /** A request of the same identity (also via a duplicate card): the quick request is not offered. */
-    #[Computed]
-    public function existing(): ?PropertyRequest
-    {
-        return SavePropertyRequest::existingFor($this->contact)->first();
-    }
-
     public function lifecycle(string $mode): void
     {
         $done = $this->command(fn () => app(SetRecordLifecycle::class)->handle($this->actor(), $this->profile, $mode, $this->confirmRemove),
             ['archive' => 'Cliente archiviato.', 'remove' => 'Cliente rimosso dalle liste.', 'restore' => 'Cliente ripristinato.'][$mode] ?? null);
         if ($done) {
             $this->confirmRemove = false;
+            $this->removeDialogOpen = false;
             unset($this->profile);
-            \Flux\Flux::modal('remove-client')->close();
         }
     }
+
+    public function openRemoveDialog(): void
+    {
+        abort_unless($this->actor()->isAdmin() && $this->profile->lifecycle_state !== 'removed', 403);
+        $this->confirmRemove = false;
+        $this->removeDialogOpen = true;
+    }
+
+    public function closeRemoveDialog(): void
+    {
+        $this->removeDialogOpen = false;
+        $this->confirmRemove = false;
+    }
+
+    public function openAnonymizeInfo(): void
+    {
+        abort_unless($this->actor()->isAdmin(), 403);
+        $this->anonymizeInfoOpen = true;
+    }
+
+    public function closeAnonymizeInfo(): void
+    {
+        $this->anonymizeInfoOpen = false;
+    }
+
 }; ?>
 
 @php($p = $this->profile)
 @php($questionnaire = App\Gestionale\Questionnaire\Questionnaire::forAgency($contact->agency_id))
-<div class="flex flex-col gap-6">
-    <div>
-        <flux:link :href="route('gestionale.clients.index')" wire:navigate>← Clienti</flux:link>
-        <div class="mt-2 flex flex-wrap items-center justify-between gap-4">
-            <div class="flex items-center gap-3">
-                <flux:avatar :name="$contact->display_name" />
-                <div>
-                    <flux:heading size="xl" level="1">{{ $contact->display_name }}</flux:heading>
-                    <div class="mt-1 flex gap-2">
-                        <flux:badge size="sm">{{ $p->status }}</flux:badge>
-                        @if ($p->lifecycle_state)
-                            <flux:badge size="sm" color="zinc">{{ $p->lifecycle_state === 'removed' ? 'Rimosso dalle liste' : 'Archiviato' }}</flux:badge>
-                        @endif
-                    </div>
-                </div>
-            </div>
-            <div class="flex gap-2">
-                @can('update', $contact)
-                    <flux:button icon="pencil" :href="route('gestionale.clients.edit', $contact)" wire:navigate>Modifica</flux:button>
-                @endcan
-                @if ($this->existing)
-                    @can('view', $this->existing)
-                        <flux:button variant="primary" :href="route('gestionale.requests.show', $this->existing)" wire:navigate>Apri la richiesta</flux:button>
-                    @endcan
-                @elseif (auth()->user()->can('update', $contact))
-                    <flux:button variant="primary" icon="plus" :href="route('gestionale.requests.create', ['cliente' => $contact->id])" wire:navigate>Nuova richiesta</flux:button>
-                @endif
-            </div>
+<div class="crm-record-page">
+    <a class="crm-back" href="{{ route('gestionale.clients.index') }}" wire:navigate><x-gestionale.lucide name="arrow-left" :size="16" />Tutti i clienti</a>
+    <div class="crm-page-head">
+        <div>
+            <p class="proto-eyebrow">REKO Gestionale</p>
+            <h1>{{ $contact->display_name }}</h1>
+        </div>
+        <div class="crm-actions">
+            @can('update', $contact)
+                <button type="button" class="crm-btn secondary" wire:click="$dispatch('open-client-form', { contactId: {{ $contact->id }} })"><x-gestionale.lucide name="pencil" :size="16" />Modifica</button>
+                <a class="crm-btn" href="{{ route('gestionale.requests.create', ['cliente' => $contact->id]) }}" wire:navigate><x-gestionale.lucide name="plus" :size="16" />Nuova richiesta</a>
+            @endcan
         </div>
     </div>
 
-    <div class="grid gap-6 lg:grid-cols-3">
-        <flux:card class="flex flex-col gap-3">
-            <flux:heading>Recapiti</flux:heading>
-            @if ($contact->primaryPhone)
-                <div><flux:text size="sm">Telefono</flux:text><flux:link :href="'tel:'.preg_replace('/[^\d+]/', '', $contact->primaryPhone->value)">{{ $contact->primaryPhone->value }}</flux:link></div>
-            @endif
-            @if ($contact->primaryEmail)
-                <div><flux:text size="sm">Email</flux:text><flux:link :href="'mailto:'.rawurlencode($contact->primaryEmail->value)">{{ $contact->primaryEmail->value }}</flux:link></div>
-            @endif
-            <div><flux:text size="sm">Creatore del lead</flux:text><flux:text>{{ $p->createdBy?->name ?? 'Non registrato nello storico' }}</flux:text></div>
-            <div><flux:text size="sm">Operatore assegnato</flux:text><flux:text>{{ $p->agent?->name }}</flux:text></div>
-        </flux:card>
+    @if (App\Gestionale\Properties\TestRecords::isTestClient($contact))<p class="crm-contact-warning" role="note">TEST · Scheda di prova, non un cliente reale.</p>@endif
+    <x-gestionale.record-activities :context="['contact_id' => $contact->id]" />
 
-        <flux:card class="flex flex-col gap-3 lg:col-span-2">
-            <flux:heading>Dettagli</flux:heading>
-            <div class="grid gap-3 md:grid-cols-2">
-                <div><flux:text size="sm">Canale preferito</flux:text><flux:text>{{ $p->preferred_channel }}</flux:text></div>
-                <div><flux:text size="sm">Fascia di contatto</flux:text><flux:text>{{ $p->contact_time ?: '—' }}</flux:text></div>
-                <div><flux:text size="sm">Provenienza</flux:text><flux:text>{{ $p->source ?: '—' }}</flux:text></div>
-                <div><flux:text size="sm">Nota di lavoro</flux:text><flux:text>{{ $p->next_action ?: '—' }}</flux:text></div>
-                <div class="md:col-span-2"><flux:text size="sm">Note interne</flux:text><flux:text class="whitespace-pre-line">{{ $p->notes ?: '—' }}</flux:text></div>
-                <div class="md:col-span-2"><flux:text size="sm">Consensi</flux:text>
-                    <flux:text>Gestione della pratica: {{ $p->consent_practice ? 'sì' : 'no' }} · Comunicazioni promozionali: {{ $p->consent_marketing ? 'sì' : 'no' }}</flux:text>
-                </div>
-            </div>
-        </flux:card>
+    <div class="crm-detail-grid">
+        <section class="crm-panel">
+            <h2>Recapiti</h2>
+            <dl class="crm-facts">
+                <div><dt>Numero di telefono</dt><dd>@if ($contact->primaryPhone)<a href="tel:{{ preg_replace('/[^\d+]/', '', $contact->primaryPhone->value) }}">{{ $contact->primaryPhone->value }}</a>@else Non indicato @endif</dd></div>
+                <div><dt>Email</dt><dd>@if ($contact->primaryEmail)<a href="mailto:{{ rawurlencode($contact->primaryEmail->value) }}">{{ $contact->primaryEmail->value }}</a>@else Non indicata @endif</dd></div>
+                <div><dt>Creatore del lead</dt><dd>{{ $p->createdBy?->name ?? 'Non registrato nello storico' }}</dd></div>
+            </dl>
+        </section>
+
+        <section class="crm-panel">
+            <h2>Che cosa cerca</h2>
+            @forelse ($this->requests as $request)
+                @php($progress = ProfileFlow::baseCompleteness($questionnaire, $request->criteria))
+                <x-gestionale.crm-request-row :request="$request" :progress="$progress" :show-client="false" :show-activities="false" />
+            @empty
+                <p class="crm-empty">Parti da una nuova richiesta. Le successive rimarranno indipendenti.</p>
+            @endforelse
+        </section>
     </div>
 
-    <flux:card class="flex flex-col gap-3">
-        <flux:heading>Che cosa cerca</flux:heading>
-        @forelse ($this->requests as $request)
-            @php($progress = App\Gestionale\Questionnaire\ProfileFlow::baseCompleteness($questionnaire, $request->criteria))
-            <div class="flex flex-wrap items-center gap-3" wire:key="r-{{ $request->id }}">
-                <flux:link :href="route('gestionale.requests.show', $request)" wire:navigate class="flex-1">{{ $request->title_auto ? 'Richiesta immobiliare' : $request->title }}</flux:link>
-                <flux:badge size="sm">{{ $request->status }}</flux:badge>
-                <flux:text size="sm">{{ $progress['answered'] }}/{{ $progress['total'] }}</flux:text>
-            </div>
-        @empty
-            <flux:text>Parti da una nuova richiesta.</flux:text>
-        @endforelse
-    </flux:card>
-
-    <flux:card class="flex flex-col gap-3">
-        <flux:heading>Archiviazione e rimozione cliente</flux:heading>
-        <flux:text size="sm">Operazioni reversibili: dati, collegamenti e storico non vengono cancellati.</flux:text>
-        @error('command') <flux:text class="text-red-600">{{ $message }}</flux:text> @enderror
-        <div class="flex flex-wrap gap-2">
+    <section class="crm-panel">
+        <h2>Archiviazione e rimozione cliente</h2>
+        <p class="crm-muted">Operazioni reversibili: dati, collegamenti e storico vengono conservati.</p>
+        @error('command')<p class="crm-error" role="alert">{{ $message }}</p>@enderror
+        <div class="crm-actions">
             @if ($p->lifecycle_state)
-                <flux:button wire:click="lifecycle('restore')">Ripristina</flux:button>
+                <button class="crm-btn secondary" wire:click="lifecycle('restore')">Ripristina</button>
             @else
-                @can('archive', $contact)
-                    <flux:button wire:click="lifecycle('archive')">Archivia</flux:button>
-                @endcan
+                @can('archive', $contact)<button class="crm-btn secondary" wire:click="lifecycle('archive')">Archivia</button>@endcan
             @endif
-            @if ($this->actor()->isAdmin() && $p->lifecycle_state !== 'removed')
-                <flux:modal.trigger name="remove-client"><flux:button variant="danger">Rimuovi dalle liste</flux:button></flux:modal.trigger>
-            @endif
-            @if ($this->actor()->isAdmin())
-                <flux:modal.trigger name="anonymize-info"><flux:button variant="ghost">Anonimizzazione · informazioni</flux:button></flux:modal.trigger>
-            @endif
+            @if ($this->actor()->isAdmin() && $p->lifecycle_state !== 'removed')<button type="button" class="crm-btn secondary" wire:click="openRemoveDialog">Rimuovi dalle liste</button>@endif
+            @if ($this->actor()->isAdmin())<button type="button" class="crm-btn secondary" wire:click="openAnonymizeInfo">Anonimizzazione · informazioni</button>@endif
         </div>
-    </flux:card>
+    </section>
 
-    <flux:modal name="remove-client" class="max-w-md">
-        <div class="flex flex-col gap-4">
-            <flux:heading size="lg">Rimuovi dalle liste</flux:heading>
-            <flux:text>La scheda esce dalle liste ma resta conservata con tutti i collegamenti. Puoi ripristinarla in qualsiasi momento.</flux:text>
-            <flux:checkbox wire:model="confirmRemove" label="Confermo la rimozione reversibile dalla lista" />
-            <div class="flex justify-end gap-2">
-                <flux:modal.close><flux:button variant="ghost">Annulla</flux:button></flux:modal.close>
-                <flux:button variant="danger" wire:click="lifecycle('remove')">Rimuovi</flux:button>
+    @if ($removeDialogOpen)
+        <x-gestionale.crm-dialog title="Rimuovi dalle liste" label="Scheda cliente" :close="'$wire.closeRemoveDialog()'">
+            <div class="crm-form"><p class="crm-muted">La scheda esce dalle liste ma resta conservata con tutti i collegamenti. Puoi ripristinarla in qualsiasi momento.</p>
+                <label class="crm-check"><input type="checkbox" wire:model="confirmRemove">Confermo la rimozione reversibile dalla lista</label>
+                <div class="crm-actions"><button type="button" class="crm-btn secondary" wire:click="closeRemoveDialog">Annulla</button><button type="button" class="crm-btn" wire:click="lifecycle('remove')">Rimuovi</button></div>
             </div>
-        </div>
-    </flux:modal>
+        </x-gestionale.crm-dialog>
+    @endif
+    @if ($anonymizeInfoOpen)
+        <x-gestionale.crm-dialog title="Anonimizzazione" label="Scheda cliente" :close="'$wire.closeAnonymizeInfo()'">
+            <div class="crm-form"><p class="crm-muted">L’anonimizzazione dei dati personali non è attiva in questa versione. Nessun dato viene modificato da questa finestra.</p><div class="crm-actions"><button type="button" class="crm-btn" wire:click="closeAnonymizeInfo">Chiudi</button></div></div>
+        </x-gestionale.crm-dialog>
+    @endif
 
-    <flux:modal name="anonymize-info" class="max-w-md">
-        <div class="flex flex-col gap-3">
-            <flux:heading size="lg">Anonimizzazione</flux:heading>
-            <flux:text>L’anonimizzazione dei dati personali non è attiva in questa versione. Nessun dato viene modificato da questa finestra.</flux:text>
-            <div class="flex justify-end"><flux:modal.close><flux:button>Chiudi</flux:button></flux:modal.close></div>
-        </div>
-    </flux:modal>
+    <livewire:gestionale.client-form-modal />
 </div>

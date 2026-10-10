@@ -1,13 +1,5 @@
 @import 'tailwindcss';
 @import '../../vendor/livewire/flux/dist/flux.css';
-@import './gestionale/brand.css';
-@import './gestionale/prototype.css';
-@import './gestionale/crm.css';
-@import './gestionale/website.css';
-@import './gestionale/usability.css';
-@import './gestionale/daily-use.css';
-@import './gestionale/operational.css';
-@import './gestionale/laravel-adapter.css';
 
 @source '../views';
 @source '../../vendor/laravel/framework/src/Illuminate/Pagination/resources/views/*.blade.php';

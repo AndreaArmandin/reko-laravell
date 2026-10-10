@@ -53,6 +53,7 @@ class Contact extends Model
     {
         return [
             'tags' => 'array',
+            'contact_history' => 'array',
             'removed_at' => 'datetime',
         ];
     }

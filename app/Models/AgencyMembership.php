@@ -31,6 +31,13 @@ class AgencyMembership extends Model
     protected $guarded = ['id'];
 
     /**
+     * Role of the account when a work profile narrows it for this session (permissions.ts
+     * actorWithProfile): only an admin can pick crm or scout. `role` then holds the profile,
+     * in memory only (never persisted); null when no profile is applied.
+     */
+    public ?string $realRole = null;
+
+    /**
      * @return array<string, string>
      */
     protected function casts(): array
@@ -38,6 +45,7 @@ class AgencyMembership extends Model
         return [
             'deactivated_at' => 'datetime',
             'permissions' => 'array',
+            'catalog_package' => 'array',
         ];
     }
 
@@ -60,6 +68,12 @@ class AgencyMembership extends Model
     public function isActive(): bool
     {
         return $this->deactivated_at === null;
+    }
+
+    /** The role the account really has, ignoring the work profile of the session. */
+    public function actualRole(): string
+    {
+        return $this->realRole ?? (string) $this->role;
     }
 
     public function isAdmin(): bool

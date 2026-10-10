@@ -21,6 +21,7 @@ class EnterAgencyController extends Controller
             return redirect()->route('gestionale.choose')->with('gestionale.error', 'Non sei un membro attivo di questa agenzia.');
         }
 
-        return redirect()->route('gestionale.home');
+        // First entry of the session: "Come vuoi lavorare nel Gestionale?"; afterwards straight to Oggi.
+        return redirect()->route($current->workProfile() ? 'gestionale.home' : 'gestionale.profile');
     }
 }

@@ -1,4 +1,9 @@
 /* Daily work: stable reading order and direct contextual actions. */
+.crm-save-feedback{position:fixed;right:16px;bottom:16px;z-index:1000;max-width:min(440px,calc(100vw - 32px));padding:14px 18px;border:1px solid #9eaaa3;border-radius:10px;background:#f3faf5;color:#173b27;box-shadow:0 6px 24px #0003;display:flex;align-items:center;gap:12px;line-height:1.5}
+.crm-save-feedback.is-error{background:#fff0ef;color:#842c24}
+.crm-save-feedback>span{min-width:0;overflow-wrap:anywhere}
+.crm-save-feedback>button{min-width:44px;min-height:44px;border:0;border-radius:8px;background:transparent;color:inherit;font-size:1.5rem;line-height:1;cursor:pointer}
+.crm-save-feedback>button:hover{background:#0000000d}
 .crm-app .reko-widget-grid{align-items:start}
 .crm-app .crm-record-management{margin:12px 0 20px;font-size:.875rem;color:var(--ui-muted,#53615a)}
 .crm-app .crm-record-management[open]{padding:16px;border:1px solid var(--ui-line,#d7ded9);border-radius:10px}
@@ -91,3 +96,5 @@
 .census-paste-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px;align-items:start}
 .census-paste-grid>.census-paste-section{min-width:0;height:100%}
 @media(max-width:700px){.census-paste-grid{grid-template-columns:1fr}.census-paste-section{padding:16px}}
+.crm-app .crm-form-page--client{max-width:900px;margin-inline:auto}
+.crm-app .crm-form-page--request{max-width:980px;margin-inline:auto}

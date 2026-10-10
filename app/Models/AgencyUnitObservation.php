@@ -7,7 +7,8 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 /**
- * Agency note about a cadastral unit.
+ * Scheda di censimento dell'agenzia per una unità catastale (DemoUnit del gestionale originale):
+ * dati della fonte Sister, stato, ubicazione corretta a mano. Una per agenzia e unità.
  */
 class AgencyUnitObservation extends Model
 {
@@ -25,6 +26,12 @@ class AgencyUnitObservation extends Model
         return [
             'observed_on' => 'date',
             'data' => 'array',
+            'situation_date' => 'date:Y-m-d',
+            'last_verified' => 'date:Y-m-d',
+            'removed' => 'array',
+            'subject_holding' => 'array',
+            'income' => 'float',
+            'consistency_value' => 'float',
         ];
     }
 

@@ -2,10 +2,12 @@
 
 use App\Gestionale\Actions\SetRecordLifecycle;
 use App\Gestionale\Livewire\HandlesCommands;
+use App\Gestionale\Properties\TestRecords;
 use App\Gestionale\Questionnaire\AnswerPresenter;
 use App\Gestionale\Questionnaire\ProfileFlow;
 use App\Gestionale\Questionnaire\Questionnaire;
 use App\Models\Contact;
+use App\Models\PropertyMatch;
 use App\Models\PropertyRequest;
 use Illuminate\Database\Eloquent\Builder;
 use Livewire\Attributes\Computed;
@@ -18,11 +20,19 @@ use Livewire\WithPagination;
 /*
  * Ricerche dei clienti (requests.tsx Requests): filtri per stato, cliente e testo; "incomplete" dalla dashboard;
  * prima le richieste aggiornate più di recente; archiviate e rimosse in una sezione a parte.
- * I filtri degli abbinamenti (compatibili, attesa, visite, trattativa) arrivano con la fase Matching.
+ * I filtri degli abbinamenti riprendono le viste della dashboard originale.
  */
 new #[Layout('layouts::gestionale'), Title('Ricerche dei clienti')] class extends Component
 {
     use HandlesCommands, WithPagination;
+
+    private const FILTER_LABELS = [
+        'incomplete' => 'Da completare',
+        'compatibili' => 'Abbinamenti da valutare ≥80',
+        'attesa' => 'In attesa di risposta',
+        'visite' => 'Visite da programmare',
+        'trattativa' => 'Trattative aperte',
+    ];
 
     #[Url(as: 'stato')]
     public string $status = '';
@@ -36,13 +46,20 @@ new #[Layout('layouts::gestionale'), Title('Ricerche dei clienti')] class extend
     #[Url(as: 'filtro')]
     public string $filter = '';
 
+    /** standard | test | all — test requests are identified by their explicit demo client marker. */
+    #[Url(as: 'schede')]
+    public string $tests = 'standard';
+
     public bool $showInactive = false;
 
     public function mount(): void
     {
         $this->authorize('viewAny', PropertyRequest::class);
-        if ($this->filter !== 'incomplete') {
+        if (! array_key_exists($this->filter, self::FILTER_LABELS)) {
             $this->filter = '';
+        }
+        if (! in_array($this->tests, TestRecords::TEST_MODES, true)) {
+            $this->tests = 'standard';
         }
     }
 
@@ -55,18 +72,48 @@ new #[Layout('layouts::gestionale'), Title('Ricerche dei clienti')] class extend
     {
         $like = '%'.str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], trim($this->search)).'%';
 
-        return PropertyRequest::query()->visibleTo($this->actor())
+        $query = PropertyRequest::query()->visibleTo($this->actor())
             ->when(trim($this->search) !== '', fn ($q) => $q->where(fn ($w) => $w->where('title', 'ilike', $like)
                 ->orWhereHas('contact', fn ($c) => $c->where('display_name', 'ilike', $like))))
             ->when($this->status !== '', fn ($q) => $q->where('status', $this->status))
             ->when($this->client !== '', fn ($q) => $q->where('contact_id', (int) $this->client))
             ->when($this->filter === 'incomplete', fn ($q) => $q->where('finished', false)->whereNotIn('status', ['Sospesa', 'Conclusa', 'Annullata']));
+
+        if ($this->filter === 'compatibili') {
+            $query->whereNotIn('status', ['Sospesa', 'Conclusa', 'Annullata'])
+                ->whereHas('matches', fn (Builder $matches) => $matches->where('score', '>=', 80)
+                    ->whereNotIn('status', ['Rifiutato', 'Non compatibile', 'Concluso']));
+        } elseif (in_array($this->filter, ['attesa', 'visite', 'trattativa'], true)) {
+            $statuses = match ($this->filter) {
+                'attesa' => ['Proposto al cliente', 'In attesa di risposta'],
+                'visite' => ['Visita da programmare'],
+                'trattativa' => ['In trattativa'],
+            };
+            $query->whereHas('matches', fn (Builder $matches) => $matches->whereIn('status', $statuses));
+        }
+
+        return $query;
     }
 
     #[Computed]
     public function requests()
     {
-        return $this->base()->activeRecords()->with('contact')->orderByDesc('updated_at')->orderByDesc('id')->paginate(25);
+        $query = $this->base()->activeRecords();
+        $query = match ($this->tests) {
+            'all' => $query,
+            'test' => $query->whereHas('contact', fn (Builder $contact) => $contact->whereIn('display_name', TestRecords::TEST_CLIENT_NAMES)),
+            default => $query->whereHas('contact', fn (Builder $contact) => $contact->whereNotIn('display_name', TestRecords::TEST_CLIENT_NAMES)),
+        };
+
+        return $query->with('contact')->orderByDesc('updated_at')->orderByDesc('id')->paginate(25);
+    }
+
+    #[Computed]
+    public function testCount(): int
+    {
+        return PropertyRequest::query()->visibleTo($this->actor())->activeRecords()
+            ->whereHas('contact', fn (Builder $contact) => $contact->whereIn('display_name', TestRecords::TEST_CLIENT_NAMES))
+            ->count();
     }
 
     #[Computed]
@@ -109,7 +156,7 @@ new #[Layout('layouts::gestionale'), Title('Ricerche dei clienti')] class extend
 
     public function clearFilters(): void
     {
-        $this->reset('status', 'client', 'search', 'filter');
+        $this->reset('status', 'client', 'search', 'filter', 'tests');
         $this->resetPage();
     }
 }; ?>
@@ -122,11 +169,16 @@ new #[Layout('layouts::gestionale'), Title('Ricerche dei clienti')] class extend
             <p class="crm-muted">Clienti, esigenze e immobili compatibili.</p>
         </div>
         @can('create', App\Models\PropertyRequest::class)
-            <a class="crm-btn" href="{{ route('gestionale.requests.create') }}" wire:navigate><flux:icon name="plus" class="size-4" />Nuova richiesta</a>
+            <a class="crm-btn" href="{{ route('gestionale.requests.create') }}" wire:navigate><x-gestionale.lucide name="plus" :size="16" />Nuova richiesta</a>
         @endcan
     </div>
 
     <div class="crm-toolbar">
+        <label class="crm-field"><span>Schede da mostrare</span><select wire:model.live="tests">
+            <option value="standard">Lista principale · test esclusi</option>
+            <option value="test">Solo test ({{ $this->testCount }})</option>
+            <option value="all">Tutte, compresi i test</option>
+        </select></label>
         <label class="crm-field"><span>Stato</span><select wire:model.live="status">
             <option value="">Tutte</option>
             @foreach (App\Models\PropertyRequest::STATUSES as $s)
@@ -147,9 +199,9 @@ new #[Layout('layouts::gestionale'), Title('Ricerche dei clienti')] class extend
     </div>
 
     <div class="flex items-center gap-3">
-        @if ($filter === 'incomplete')
-            <span class="crm-pill">Da completare</span>
-            <flux:link as="button" wire:click="$set('filter', '')">Rimuovi filtro</flux:link>
+        @if (isset(self::FILTER_LABELS[$filter]))
+            <span class="crm-pill">{{ self::FILTER_LABELS[$filter] }}</span>
+            <button class="crm-link" type="button" wire:click="$set('filter', '')">Rimuovi filtro</button>
         @endif
     </div>
     <p class="crm-muted">Prima le richieste aggiornate più di recente.</p>
@@ -165,13 +217,14 @@ new #[Layout('layouts::gestionale'), Title('Ricerche dei clienti')] class extend
                     <span class="crm-grow">
                         <strong>{{ $request->title }}</strong>
                         <small>{{ $request->contact->display_name }}</small>
+                        @if (TestRecords::isTestClient($request->contact))<x-gestionale.crm-pill>TEST · dati fittizi</x-gestionale.crm-pill>@endif
                         @if ($summary = $this->summary($request))<small>{{ $summary }}</small>@endif
                     </span>
                     <span class="crm-row-tail">
                         <span class="crm-pill">{{ $request->status }}</span>
                         <span class="crm-answer-progress"><span>{{ $progress['answered'] }}/{{ $progress['total'] }} risposte del percorso base</span><progress max="{{ max(1, $progress['total']) }}" value="{{ min($progress['answered'], $progress['total']) }}" aria-label="Risposte completate"></progress></span>
                     </span>
-                    <flux:icon name="arrow-up-right" class="size-4" aria-hidden="true" />
+                    <x-gestionale.lucide name="arrow-up-right" :size="16" aria-hidden="true" />
                 </a>
             </article>
         @empty
@@ -183,16 +236,14 @@ new #[Layout('layouts::gestionale'), Title('Ricerche dei clienti')] class extend
 
     @if ($this->inactive->isNotEmpty())
         <div>
-            <flux:button variant="ghost" size="sm" :icon="$showInactive ? 'chevron-down' : 'chevron-right'" wire:click="$toggle('showInactive')">
-                Archiviate e rimosse · {{ $this->inactive->count() }}
-            </flux:button>
+            <button class="crm-link" type="button" aria-expanded="{{ $showInactive ? 'true' : 'false' }}" wire:click="$toggle('showInactive')"><span aria-hidden="true">{{ $showInactive ? '⌄' : '›' }}</span> Archiviate e rimosse · {{ $this->inactive->count() }}</button>
             @if ($showInactive)
                 <div class="mt-2 divide-y divide-zinc-200 rounded-xl border border-zinc-200 bg-white">
                     @foreach ($this->inactive as $request)
-                        <div class="flex items-center gap-4 p-3" wire:key="ri-{{ $request->id }}">
-                            <flux:link :href="route('gestionale.requests.show', $request)" wire:navigate class="flex-1">{{ $request->title }} · {{ $request->contact->display_name }}</flux:link>
-                            <flux:badge size="sm" color="zinc">{{ $request->lifecycle_state === 'removed' ? 'Rimossa' : 'Archiviata' }}</flux:badge>
-                            <flux:button size="xs" wire:click="restore({{ $request->id }})">Ripristina</flux:button>
+                        <div class="crm-record-row" wire:key="ri-{{ $request->id }}">
+                            <a class="crm-title-link crm-grow" href="{{ route('gestionale.requests.show', $request) }}" wire:navigate>{{ $request->title }} · {{ $request->contact->display_name }}</a>
+                            <x-gestionale.crm-pill>{{ $request->lifecycle_state === 'removed' ? 'Rimossa' : 'Archiviata' }}</x-gestionale.crm-pill>
+                            <button class="crm-btn secondary" type="button" wire:click="restore({{ $request->id }})">Ripristina</button>
                         </div>
                     @endforeach
                 </div>

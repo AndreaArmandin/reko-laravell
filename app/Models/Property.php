@@ -19,6 +19,9 @@ class Property extends Model
 
     protected $table = 'properties';
 
+    /** updated_at is the optimistic revision of property.save: keep microseconds. */
+    protected $dateFormat = 'Y-m-d H:i:s.u';
+
     protected $guarded = ['id'];
 
     protected function casts(): array
@@ -40,6 +43,14 @@ class Property extends Model
     public function agency(): BelongsTo
     {
         return $this->belongsTo(Agency::class);
+    }
+
+    /**
+     * @return BelongsTo<User, $this>
+     */
+    public function agent(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'agent_user_id');
     }
 
     /**

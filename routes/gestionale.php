@@ -1,6 +1,9 @@
 <?php
 
 use App\Http\Controllers\Gestionale\EnterAgencyController;
+use App\Http\Controllers\Gestionale\ExportCensusMissingPhonesController;
+use App\Http\Controllers\Gestionale\NotificationReadController;
+use App\Gestionale\CurrentAgency;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -12,6 +15,15 @@ Route::middleware(['auth'])->prefix('gestionale')->name('gestionale.')->group(fu
     Route::post('agenzia/{agency}', EnterAgencyController::class)->whereNumber('agency')->name('enter');
 
     Route::middleware('agency')->group(function () {
+        // Come vuoi lavorare nel Gestionale? (profilo di lavoro) e campanella delle notifiche.
+        Route::livewire('profilo', 'pages::gestionale.profile')->name('profile');
+        Route::post('profilo/cambia', function (CurrentAgency $current) {
+            $current->clearWorkProfile();
+
+            return redirect()->route('gestionale.profile');
+        })->name('profile.clear');
+        Route::post('notifiche/{notification}/letta', NotificationReadController::class)->whereNumber('notification')->name('notifications.read');
+
         Route::livewire('/', 'pages::gestionale.home')->name('home');
 
         // Clienti
@@ -35,6 +47,8 @@ Route::middleware(['auth'])->prefix('gestionale')->name('gestionale.')->group(fu
         Route::livewire('attivita', 'pages::gestionale.activities.index')->name('activities.index');
         Route::livewire('mappa-zone', 'pages::gestionale.scouting.index')->name('scouting.index');
         Route::livewire('archivio-catastale', 'pages::gestionale.archive.index')->name('archive.index');
+        Route::get('archivio-catastale/esporta/codici-senza-telefono', ExportCensusMissingPhonesController::class)
+            ->name('archive.export.missing-phone');
         Route::livewire('obiettivi', 'pages::gestionale.goals.index')->name('goals.index');
         Route::livewire('impostazioni', 'pages::gestionale.settings.index')->name('settings.index');
 

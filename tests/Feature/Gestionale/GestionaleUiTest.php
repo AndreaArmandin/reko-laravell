@@ -2,6 +2,7 @@
 
 use App\Gestionale\Actions\Clients\SaveClient;
 use App\Gestionale\Actions\Requests\CreatePropertyRequest;
+use App\Gestionale\Actions\Properties\SaveProperty;
 use App\Gestionale\CurrentAgency;
 use App\Gestionale\Navigation;
 use App\Models\Agency;
@@ -26,6 +27,20 @@ function uiClient(AgencyMembership $actor, string $name, string $phone): Contact
 }
 
 describe('entry points', function () {
+    it('resolves the property agent relation used by the latest listings widget', function () {
+        $this->actingAs($this->admin->user);
+        app(SaveProperty::class)->handle($this->admin, [
+            'title' => 'Immobile demo relazione agente',
+            'address' => 'Via Fittizia 1',
+            'city' => 'Comune Demo',
+            'agent_user_id' => $this->crm->user_id,
+            'status' => 'Attivo',
+            'features' => ['operation' => 'Acquisto'],
+        ]);
+
+        $this->get(route('gestionale.home', ['completo' => 1]))->assertOk()->assertSee('Immobile demo relazione agente');
+    });
+
     it('points the Trova home button to the gestionale, not to /admin', function () {
         $this->get(route('home'))->assertOk()->assertSee(route('gestionale.home'), false)->assertDontSee('href="'.route('dashboard').'">Apri Gestionale', false);
         $this->get(route('gestionale.home'))->assertRedirect(route('login'));
@@ -47,7 +62,7 @@ describe('entry points', function () {
         $this->actingAs($this->crm->user)->get(route('gestionale.home'))->assertRedirect(route('gestionale.choose'));
         $this->get(route('gestionale.choose'))->assertSee($this->crm->agency->name)->assertSee($second->agency->name);
 
-        $this->post(route('gestionale.enter', $second->agency_id))->assertRedirect(route('gestionale.home'));
+        $this->post(route('gestionale.enter', $second->agency_id))->assertRedirect(route('gestionale.profile'));
         expect(session(CurrentAgency::SESSION_KEY))->toBe($second->agency_id);
         $this->get(route('gestionale.home'))->assertOk()->assertSee($second->agency->name);
     });
@@ -57,7 +72,7 @@ describe('entry points', function () {
         $foreign = Agency::factory()->create();
         $this->actingAs($this->crm->user);
 
-        Livewire::test('pages::gestionale.choose')->call('choose', $second->agency_id)->assertRedirect(route('gestionale.home'));
+        Livewire::test('pages::gestionale.choose')->call('choose', $second->agency_id)->assertRedirect(route('gestionale.profile'));
         Livewire::test('pages::gestionale.choose')->call('choose', $foreign->id)->assertForbidden();
     });
 
@@ -99,6 +114,17 @@ describe('navigation', function () {
 });
 
 describe('clients screens', function () {
+    it('keeps explicitly marked test clients out of the main list and makes them selectable', function () {
+        uiClient($this->crm, 'Cliente Demo Verifica CRM', '3331112222');
+        uiClient($this->crm, 'Cliente reale di prova', '3332223333');
+        $this->actingAs($this->crm->user);
+
+        Livewire::test('pages::gestionale.clients.index')
+            ->assertSee('Cliente reale di prova')->assertDontSee('Cliente Demo Verifica CRM')
+            ->set('tests', 'test')->assertSee('Cliente Demo Verifica CRM')->assertDontSee('Cliente reale di prova')
+            ->assertSee('TEST · dati fittizi');
+    });
+
     it('lists only visible clients with search and filters', function () {
         $mine = uiClient($this->crm, 'Mario Rossi', '3331112222');
         uiClient($this->crm2, 'Lucia Verdi', '3332223333');
@@ -107,7 +133,7 @@ describe('clients screens', function () {
         $this->actingAs($this->admin->user)->get(route('gestionale.clients.index'))->assertSee('Mario Rossi')->assertSee('Lucia Verdi');
 
         Livewire::test('pages::gestionale.clients.index')->set('search', '2223333')->assertSee('Lucia Verdi')->assertDontSee('Mario Rossi')
-            ->set('search', '')->set('filter', 'Da contattare')->assertDontSee('Mario Rossi');
+            ->set('search', '')->set('status', 'Da contattare')->assertDontSee('Mario Rossi');
 
         $mine->clientProfile->forceFill(['status' => 'Da contattare'])->save();
         Livewire::test('pages::gestionale.clients.index', ['filter' => 'richiamare'])->assertSee('Mario Rossi')->assertDontSee('Lucia Verdi');
@@ -127,7 +153,7 @@ describe('clients screens', function () {
         $this->actingAs($this->crm->user);
         Livewire::test('pages::gestionale.clients.form')
             ->set('name', 'Nuova Cliente')->set('phone', '3339998888')->set('email', 'nuova@example.it')
-            ->call('save')->assertHasNoErrors();
+            ->call('save')->assertHasNoErrors()->assertDispatched('crm-notice');
 
         $client = Contact::query()->where('display_name', 'Nuova Cliente')->firstOrFail();
         expect($client->clientProfile->agent_user_id)->toBe($this->crm->user_id);
@@ -154,7 +180,8 @@ describe('clients screens', function () {
 
         $stale = Livewire::test('pages::gestionale.clients.form', ['contact' => $client]);
         Livewire::test('pages::gestionale.clients.form', ['contact' => $client])->set('notes', 'Prima modifica')->call('save')->assertHasNoErrors();
-        $stale->set('notes', 'Seconda modifica')->call('save')->assertHasErrors(['command' => 'I dati sono cambiati. Aggiorna la vista e riprova.']);
+        $stale->set('notes', 'Seconda modifica')->call('save')->assertHasErrors(['command' => 'I dati sono cambiati. Aggiorna la vista e riprova.'])
+            ->assertDispatched('crm-notice');
 
         expect($client->clientProfile->fresh()->notes)->toBe('Prima modifica');
         $this->actingAs($this->crm2->user)->get(route('gestionale.clients.edit', $client))->assertForbidden();
@@ -181,6 +208,18 @@ describe('clients screens', function () {
 });
 
 describe('request screens', function () {
+    it('filters test requests by the explicit marker on their client', function () {
+        $demo = uiClient($this->crm, 'Cliente Demo Verifica CRM', '3331112222');
+        $ordinary = uiClient($this->crm, 'Cliente reale di prova', '3332223333');
+        app(CreatePropertyRequest::class)->handle($this->crm, ['contact_id' => $demo->id]);
+        app(CreatePropertyRequest::class)->handle($this->crm, ['contact_id' => $ordinary->id]);
+        $this->actingAs($this->crm->user);
+
+        Livewire::test('pages::gestionale.requests.index')
+            ->assertSee('Cliente reale di prova')->assertDontSee('TEST · dati fittizi')
+            ->set('tests', 'test')->assertSee('TEST · dati fittizi');
+    });
+
     it('creates a quick request for a new client and opens the profiling', function () {
         $this->actingAs($this->crm->user);
         Livewire::test('pages::gestionale.requests.create')

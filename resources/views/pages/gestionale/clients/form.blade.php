@@ -132,92 +132,56 @@ new #[Layout('layouts::gestionale')] class extends Component {
     }
 }; ?>
 
-<div class="mx-auto flex max-w-3xl flex-col gap-6">
-    <div>
-        <flux:link :href="$contact ? route('gestionale.clients.show', $contact) : route('gestionale.clients.index')" wire:navigate>← {{ $contact ? $contact->display_name : 'Clienti' }}</flux:link>
-        <flux:heading size="xl" level="1" class="mt-2">{{ $contact ? 'Modifica cliente' : 'Nuovo cliente' }}</flux:heading>
-        <flux:text class="mt-1">Bastano il nome e almeno un recapito. Gli altri dettagli si possono aggiungere anche dopo.</flux:text>
-    </div>
+<div class="crm-form-page crm-form-page--client">
+    <a class="crm-back" href="{{ $contact ? route('gestionale.clients.show', $contact) : route('gestionale.clients.index') }}" wire:navigate>← {{ $contact ? $contact->display_name : 'Clienti' }}</a>
+    <div class="crm-page-head"><div><p class="proto-eyebrow">REKO Gestionale · Clienti</p><h1>{{ $contact ? 'Modifica cliente' : 'Nuovo cliente' }}</h1><p class="crm-muted">Bastano il nome e almeno un recapito. Gli altri dettagli si possono aggiungere anche dopo.</p></div></div>
 
-    <form wire:submit="save" class="flex flex-col gap-5">
-        @error('command') <flux:callout variant="danger" icon="exclamation-triangle" :heading="$message" /> @enderror
-
-        <flux:input wire:model="name" label="Nome e cognome" maxlength="120" required />
-        <div class="grid gap-4 md:grid-cols-2">
-            <div>
-                <flux:input wire:model.live.debounce.400ms="phone" label="Telefono" type="tel" maxlength="60" />
-                @if (isset($this->duplicates['phone']))
-                    <flux:text size="sm" class="mt-1 text-amber-700">Già presente in
-                        @if ($this->duplicates['phone']) <flux:link :href="route('gestionale.clients.show', $this->duplicates['phone'])" target="_blank">{{ $this->duplicates['phone']->display_name }}</flux:link>@else un’altra scheda dell’agenzia @endif.
-                        Verifica prima di salvare.</flux:text>
-                @endif
+    <form wire:submit="save" class="crm-form">
+        @error('command') <p class="crm-error" role="alert">{{ $message }}</p> @enderror
+        <section class="crm-panel">
+            <label class="crm-field"><span>Nome e cognome</span><input wire:model="name" maxlength="120" required autocomplete="off"></label>
+            @error('name') <small class="crm-field-error">{{ $message }}</small> @enderror
+            <div class="crm-form-grid">
+                <label class="crm-field"><span>Telefono</span><input wire:model.live.debounce.400ms="phone" type="tel" maxlength="60" autocomplete="off" placeholder="+39 000 000 0000">
+                    @if (isset($this->duplicates['phone']))<small class="crm-contact-warning">Già presente in @if ($this->duplicates['phone'])<a class="crm-link" href="{{ route('gestionale.clients.show', $this->duplicates['phone']) }}" target="_blank">{{ $this->duplicates['phone']->display_name }}</a>@else un’altra scheda dell’agenzia @endif. Verifica prima di salvare.</small>@endif
+                    @error('phone')<small class="crm-field-error">{{ $message }}</small>@enderror
+                </label>
+                <label class="crm-field"><span>Email</span><input wire:model.live.debounce.400ms="email" type="email" maxlength="160" autocomplete="off" placeholder="cliente@example.invalid">
+                    @if (isset($this->duplicates['email']))<small class="crm-contact-warning">Già presente in @if ($this->duplicates['email'])<a class="crm-link" href="{{ route('gestionale.clients.show', $this->duplicates['email']) }}" target="_blank">{{ $this->duplicates['email']->display_name }}</a>@else un’altra scheda dell’agenzia @endif. Verifica prima di salvare.</small>@endif
+                    @error('email')<small class="crm-field-error">{{ $message }}</small>@enderror
+                </label>
             </div>
-            <div>
-                <flux:input wire:model.live.debounce.400ms="email" label="Email" type="email" maxlength="160" />
-                @if (isset($this->duplicates['email']))
-                    <flux:text size="sm" class="mt-1 text-amber-700">Già presente in
-                        @if ($this->duplicates['email']) <flux:link :href="route('gestionale.clients.show', $this->duplicates['email'])" target="_blank">{{ $this->duplicates['email']->display_name }}</flux:link>@else un’altra scheda dell’agenzia @endif.
-                        Verifica prima di salvare.</flux:text>
-                @endif
-            </div>
-        </div>
-        @error('name') <flux:text class="text-red-600">{{ $message }}</flux:text> @enderror
-        @error('phone') <flux:text class="text-red-600">{{ $message }}</flux:text> @enderror
-        @error('email') <flux:text class="text-red-600">{{ $message }}</flux:text> @enderror
+        </section>
 
         @if (! empty($this->duplicates) || $errors->has('duplicate'))
-            <flux:callout variant="warning" icon="exclamation-triangle">
-                <flux:callout.heading>Ho verificato i possibili duplicati</flux:callout.heading>
-                @error('duplicate') <flux:callout.text>{{ $message }}</flux:callout.text> @enderror
-                <flux:checkbox wire:model="confirm_duplicate" label="È una persona distinta: salva una scheda separata" />
-            </flux:callout>
+            <section class="crm-panel"><h2>Ho verificato i possibili duplicati</h2>
+                @error('duplicate')<p class="crm-error" role="alert">{{ $message }}</p>@enderror
+                <label class="crm-check"><input type="checkbox" wire:model="confirm_duplicate">È una persona distinta: salva una scheda separata</label>
+            </section>
         @endif
 
-        <div>
-            <flux:button variant="ghost" size="sm" :icon="$details ? 'chevron-down' : 'chevron-right'" wire:click="$toggle('details')" type="button">Aggiungi dettagli</flux:button>
-        </div>
-
-        @if ($details)
-            <div class="grid gap-4 md:grid-cols-2">
-                <div>
-                    <flux:select wire:model="status" label="Stato del cliente">
-                        @foreach (App\Models\ClientProfile::STATUSES as $s)
-                            <flux:select.option :value="$s">{{ $s }}</flux:select.option>
-                        @endforeach
-                    </flux:select>
-                    <flux:text size="sm" class="mt-1">«Attivo»: il cliente sta cercando e va seguito con proposte.</flux:text>
-                    @error('status') <flux:text class="text-red-600">{{ $message }}</flux:text> @enderror
+        <section class="crm-panel">
+            <button class="crm-link" type="button" wire:click="$toggle('details')">{{ $details ? '⌄ Nascondi dettagli' : '› Aggiungi dettagli' }}</button>
+            @if ($details)
+                <div class="crm-form-grid" style="margin-top:20px">
+                    <label class="crm-field"><span>Stato del cliente</span><select wire:model="status">@foreach (App\Models\ClientProfile::STATUSES as $s)<option value="{{ $s }}">{{ $s }}</option>@endforeach</select><small>«Attivo» indica una relazione in corso che va seguita.</small>@error('status')<small class="crm-field-error">{{ $message }}</small>@enderror</label>
+                    <label class="crm-field"><span>Canale preferito</span><select wire:model="preferred_channel">@foreach (App\Models\ClientProfile::CHANNELS as $c)<option value="{{ $c }}">{{ $c }}</option>@endforeach</select></label>
+                    <label class="crm-field"><span>Fascia di contatto</span><input wire:model="contact_time" placeholder="Per esempio: dopo le 18"></label>
+                    <label class="crm-field"><span>Provenienza</span><input wire:model="source" placeholder="Per esempio: passaparola, portale, vetrina"></label>
+                    @if ($contact)
+                        <label class="crm-field"><span>Operatore assegnato</span><select wire:model="agent_user_id" @disabled(! $this->actor()->isAdmin())>@foreach ($this->agents as $m)<option value="{{ $m->user_id }}">{{ $m->user->name }}{{ $m->isActive() ? '' : ' · non attivo' }}</option>@endforeach</select>@error('agent_user_id')<small class="crm-field-error">{{ $message }}</small>@enderror<small>Chi segue il cliente; può essere diverso da chi ha creato il lead.</small></label>
+                        <label class="crm-field"><span>Nota di lavoro, senza scadenza in agenda</span><input wire:model="next_action"></label>
+                    @endif
                 </div>
-                <flux:select wire:model="preferred_channel" label="Canale preferito">
-                    @foreach (App\Models\ClientProfile::CHANNELS as $c)
-                        <flux:select.option :value="$c">{{ $c }}</flux:select.option>
-                    @endforeach
-                </flux:select>
-                <flux:input wire:model="contact_time" label="Fascia di contatto" placeholder="Per esempio: dopo le 18" />
-                <flux:input wire:model="source" label="Provenienza" placeholder="Per esempio: passaparola, portale, vetrina" />
-                @if ($contact)
-                    <div>
-                        <flux:select wire:model="agent_user_id" label="Operatore assegnato" :disabled="! $this->actor()->isAdmin()">
-                            @foreach ($this->agents as $m)
-                                <flux:select.option :value="$m->user_id">{{ $m->user->name }}{{ $m->isActive() ? '' : ' · non attivo' }}</flux:select.option>
-                            @endforeach
-                        </flux:select>
-                        @error('agent_user_id') <flux:text class="text-red-600">{{ $message }}</flux:text> @enderror
-                    </div>
-                    <flux:input wire:model="next_action" label="Nota di lavoro" />
-                @endif
-            </div>
-            <flux:textarea wire:model="notes" label="Note interne" rows="3" />
-            <flux:fieldset>
-                <flux:legend>Consensi</flux:legend>
-                <flux:checkbox wire:model="consent_practice" label="Gestione della pratica" />
-                <flux:checkbox wire:model="consent_marketing" label="Comunicazioni promozionali (separate)" />
-            </flux:fieldset>
-        @endif
+                <label class="crm-field"><span>Note interne</span><textarea wire:model="notes" rows="3"></textarea></label>
+                <fieldset class="crm-fieldset"><legend>Consensi dimostrativi</legend>
+                    <label class="crm-check"><input type="checkbox" wire:model="consent_practice">Gestione della pratica</label>
+                    <label class="crm-check"><input type="checkbox" wire:model="consent_marketing">Comunicazioni promozionali (separate)</label>
+                    <small>Annotazioni di prova, non sostituiscono l’informativa e i consensi reali.</small>
+                </fieldset>
+            @endif
+        </section>
 
-        <div class="flex gap-2">
-            <flux:button type="submit" variant="primary">Salva cliente</flux:button>
-            <flux:button :href="$contact ? route('gestionale.clients.show', $contact) : route('gestionale.clients.index')" variant="ghost" wire:navigate>Annulla</flux:button>
-        </div>
+        <div class="crm-form-footer"><button class="crm-btn" type="submit" wire:loading.attr="disabled" wire:target="save"><span wire:loading.remove wire:target="save">Salva cliente</span><span wire:loading wire:target="save">Salvataggio…</span></button><a class="crm-btn secondary" href="{{ $contact ? route('gestionale.clients.show', $contact) : route('gestionale.clients.index') }}" wire:navigate>Annulla</a></div>
     </form>
 </div>

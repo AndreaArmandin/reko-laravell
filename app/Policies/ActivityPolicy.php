@@ -2,14 +2,23 @@
 
 namespace App\Policies;
 
+use App\Gestionale\Activities\ActivityAccess;
 use App\Gestionale\CurrentAgency;
 use App\Models\Activity;
 use App\Models\AgencyMembership;
 use App\Models\User;
 
+/**
+ * Activities follow permissions.ts: canSeeActivity (admin all; others what they created, own or were
+ * shared, with every link visible to them), canEditActivity, canCompleteActivity (assignee or admin).
+ * assign / share are optional permissions applied with AgencyMembership::allows().
+ */
 class ActivityPolicy
 {
-    public function __construct(private readonly CurrentAgency $current) {}
+    public function __construct(
+        private readonly CurrentAgency $current,
+        private readonly ActivityAccess $access,
+    ) {}
 
     public function viewAny(User $user): bool
     {
@@ -19,32 +28,8 @@ class ActivityPolicy
     public function view(User $user, Activity $activity): bool
     {
         $membership = $this->membership($user);
-        if (! $membership || (int) $activity->agency_id !== (int) $membership->agency_id) {
-            return false;
-        }
-        if ($membership->role === 'admin') {
-            return true;
-        }
-        if ((int) $activity->assigned_to_user_id === (int) $membership->user_id
-            || (int) $activity->created_by_user_id === (int) $membership->user_id
-            || (int) $activity->user_id === (int) $membership->user_id) {
-            return true;
-        }
 
-        if ($activity->participants()->where('user_id', $membership->user_id)->exists()) {
-            return true;
-        }
-
-        if ($activity->visibility !== 'workflow' || $membership->role !== 'crm') {
-            return false;
-        }
-
-        return ($activity->contact_id !== null && \App\Models\ClientProfile::query()
-                ->where('contact_id', $activity->contact_id)->where('agent_user_id', $membership->user_id)->exists())
-            || ($activity->property_request_id !== null && \App\Models\PropertyRequest::query()
-                ->whereKey($activity->property_request_id)->where('agent_user_id', $membership->user_id)->exists())
-            || ($activity->property_id !== null && \App\Models\Property::query()
-                ->whereKey($activity->property_id)->where('agent_user_id', $membership->user_id)->exists());
+        return $membership !== null && $this->access->canSee($membership, $activity);
     }
 
     public function create(User $user): bool
@@ -52,18 +37,38 @@ class ActivityPolicy
         return $this->membership($user) !== null;
     }
 
+    /** canEditActivity: admin always; assignee or creator until the activity is completed/confirmed. */
     public function update(User $user, Activity $activity): bool
     {
         $membership = $this->membership($user);
-        return $this->view($user, $activity) && ($membership?->role === 'admin'
-            || ((int) $activity->assigned_to_user_id === (int) $membership?->user_id
-                || (int) $activity->created_by_user_id === (int) $membership?->user_id)
-                && ! in_array($activity->status, ['Completata', 'Annullata'], true));
+
+        return $membership !== null && $this->access->canSee($membership, $activity) && $this->access->canEdit($membership, $activity);
+    }
+
+    /** canCompleteActivity: only the assignee or an administrator (Accetta, Rinvia, Chiedi chiarimenti, Annulla, Completa). */
+    public function complete(User $user, Activity $activity): bool
+    {
+        $membership = $this->membership($user);
+
+        return $membership !== null && $this->access->canSee($membership, $activity) && $this->access->canComplete($membership, $activity);
+    }
+
+    /** activities.assign: give a new activity to someone else. */
+    public function assign(User $user): bool
+    {
+        return $this->membership($user)?->allows('activities.assign') === true;
+    }
+
+    /** activities.share: share an activity with other people. */
+    public function share(User $user): bool
+    {
+        return $this->membership($user)?->allows('activities.share') === true;
     }
 
     private function membership(User $user): ?AgencyMembership
     {
         $membership = $this->current->membership();
+
         return $membership !== null && $membership->isActive() && (int) $membership->user_id === (int) $user->getKey()
             ? $membership
             : null;

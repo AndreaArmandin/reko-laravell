@@ -25,6 +25,9 @@ final class CurrentAgency
 {
     public const SESSION_KEY = 'gestionale.current_agency_id';
 
+    /** Work profile chosen in "Come vuoi lavorare nel Gestionale?": [agency id => role]. */
+    public const PROFILE_KEY = 'gestionale.work_profile';
+
     private ?Agency $override = null;
 
     private bool $resolved = false;
@@ -116,11 +119,82 @@ final class CurrentAgency
         $memberships = $this->activeMemberships($user);
         $chosen = $this->session()?->get(self::SESSION_KEY);
 
-        if ($chosen !== null && ($membership = $memberships->firstWhere('agency_id', (int) $chosen))) {
+        $membership = $chosen !== null ? $memberships->firstWhere('agency_id', (int) $chosen) : null;
+        $membership ??= $memberships->count() === 1 ? $memberships->first() : null;
+
+        return $membership ? $this->withProfile($membership) : null;
+    }
+
+    /** Applies the session's work profile (it can only narrow an admin); an invalid one is ignored. */
+    private function withProfile(AgencyMembership $membership): AgencyMembership
+    {
+        $profile = $this->session()?->get(self::PROFILE_KEY.'.'.$membership->agency_id);
+
+        try {
+            return WorkProfile::apply($membership, $profile);
+        } catch (CommandRejected) {
             return $membership;
         }
+    }
 
-        return $memberships->count() === 1 ? $memberships->first() : null;
+    /** The profile chosen for the current agency, if any (before narrowing: the choice, not the role). */
+    public function workProfile(): ?string
+    {
+        $membership = $this->membership();
+        $agencyId = $membership?->agency_id;
+        $profile = $agencyId ? $this->session()?->get(self::PROFILE_KEY.'.'.$agencyId) : null;
+
+        if (! $membership || ! is_string($profile) || ! in_array($profile, WorkProfile::ROLES, true)) {
+            return null;
+        }
+
+        try {
+            WorkProfile::apply($membership, $profile);
+        } catch (CommandRejected) {
+            // Membership roles can change after a profile was selected. Require a fresh choice.
+            return null;
+        }
+
+        return $profile;
+    }
+
+    /**
+     * Chooses how to work in the current agency. Refused when the account cannot take that role.
+     *
+     * @throws CommandRejected
+     */
+    public function chooseWorkProfile(string $profile): AgencyMembership
+    {
+        $actual = $this->actualMembership() ?? throw new MissingAgencyContext('Nessuna agenzia corrente per questa operazione.');
+        WorkProfile::apply($actual, $profile);
+        $this->session()?->put(self::PROFILE_KEY.'.'.$actual->agency_id, $profile);
+        $this->forget();
+
+        return $this->membership();
+    }
+
+    /** "Cambia profilo": back to the choice. */
+    public function clearWorkProfile(): void
+    {
+        $agencyId = $this->membership()?->agency_id;
+        if ($agencyId) {
+            $this->session()?->forget(self::PROFILE_KEY.'.'.$agencyId);
+        }
+        $this->forget();
+    }
+
+    /** The membership with its true role, whatever the work profile. */
+    public function actualMembership(): ?AgencyMembership
+    {
+        $user = $this->user();
+        if ($this->override !== null || $user === null) {
+            return null;
+        }
+        $chosen = $this->session()?->get(self::SESSION_KEY);
+        $memberships = $this->activeMemberships($user);
+        $membership = $chosen !== null ? $memberships->firstWhere('agency_id', (int) $chosen) : null;
+
+        return $membership ?? ($memberships->count() === 1 ? $memberships->first() : null);
     }
 
     /**

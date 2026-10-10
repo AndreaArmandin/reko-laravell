@@ -1,3 +1,4 @@
+@import '../../../node_modules/maplibre-gl/dist/maplibre-gl.css';
 /* Laravel/Livewire markup adapter for the original Gestionale visual system. */
 :root {
     --ui-bg: var(--reko-background);
@@ -26,25 +27,11 @@ body:has(.crm-app) { background: var(--ui-bg); color: var(--ui-ink); font-family
 .crm-navigation { display: grid; gap: 14px; }
 .crm-navigation-group { display: grid; gap: 4px; }
 .crm-navigation-group > p { margin: 8px 12px; color: var(--ui-muted); font-size: 1.125rem; font-weight: 700; letter-spacing: .11em; text-transform: uppercase; }
-.crm-sidebar .crm-navigation-group > a,
-.crm-mobile-nav-panel .crm-navigation-group > a { display: flex; min-height: 46px; align-items: center; gap: 11px; padding: 10px 11px; border-radius: 8px; color: var(--ui-muted); font-size: 1.125rem; line-height: 1.4; text-decoration: none; }
-.crm-sidebar .crm-navigation-group > a:hover,
-.crm-mobile-nav-panel .crm-navigation-group > a:hover { background: var(--ui-soft); }
-.crm-sidebar .crm-navigation-group > a[aria-current],
-.crm-mobile-nav-panel .crm-navigation-group > a[aria-current] { background: var(--ui-primary); color: var(--ui-ink); font-weight: 750; }
-.crm-sidebar .crm-navigation-group > a[aria-current] svg,
-.crm-mobile-nav-panel .crm-navigation-group > a[aria-current] svg { color: var(--ui-ink); }
 .crm-sidebar-footer > p { margin: 0; }
 .crm-sidebar-footer > a { align-items: center; gap: 8px; color: var(--ui-ink); text-decoration: none; }
 .crm-sidebar-footer > a:hover { color: var(--reko-accent-ink); }
 .crm-sidebar-footer [data-flux-user-menu] { margin-top: 8px; }
-.crm-topbar { position: sticky; top: 0; z-index: 650; }
-.crm-topbar .crm-user-switch { min-width: 0; max-width: 300px; }
-.crm-topbar .crm-user-switch > span { font-size: 1rem; }
-.crm-topbar .crm-user-switch strong { font-size: .93rem; font-weight: 700; }
-.crm-topbar .crm-user-switch select { width: 100%; max-width: 250px; }
-.crm-mobile-nav { display: none; }
-.crm-demo-strip { min-height: 42px; }
+[x-cloak] { display: none !important; }
 .crm-main > :first-child { min-width: 0; }
 .crm-main > div.flex.flex-col.gap-6 { gap: 1.25rem; }
 .crm-app .crm-request-search { flex: 1 1 260px; max-width: 380px; }
@@ -58,30 +45,26 @@ body:has(.crm-app) { background: var(--ui-bg); color: var(--ui-ink); font-family
 .crm-app [data-flux-badge] { border-color: var(--ui-line); background: var(--ui-soft); color: var(--ui-muted); font-family: var(--ui-mono); }
 .crm-app [data-flux-input], .crm-app [data-flux-select], .crm-app textarea { border-color: #78847c; background: #fff; color: var(--ui-ink); font-family: var(--ui-font); }
 .crm-app [data-flux-pagination] { font-family: var(--ui-font); }
-.crm-app .crm-page-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; margin: 0 0 26px; }
-.crm-app .crm-page-head h1 { margin: 0 0 11px; font-size: clamp(26px, 3vw, 35px); font-weight: 750; letter-spacing: -.035em; line-height: 1.2; }
-.crm-app .crm-page-head p { max-width: 720px; margin: 0; color: var(--ui-muted); }
-.crm-app .crm-panel { border-radius: 14px; background: var(--ui-surface); }
-.crm-mobile-nav-panel { display: grid; gap: 12px; }
-.crm-mobile-nav-panel > a { min-height: 44px; display: flex; align-items: center; color: var(--ui-ink); }
 
-@media (max-width: 800px) {
-    .crm-app { display: block; }
-    .crm-sidebar { display: none; }
-    .crm-topbar { min-height: 60px; height: auto; padding: 8px 12px; gap: 8px; }
-    .crm-topbar .crm-top-location, .crm-topbar .crm-user-switch { display: none; }
-    .crm-mobile-title { display: block; flex: 1; font-size: 19px; font-weight: 750; letter-spacing: .05em; }
-    .crm-mobile-nav { display: block; position: relative; }
-    .crm-mobile-nav > summary { display: grid; min-width: 44px; min-height: 44px; place-items: center; cursor: pointer; border: 1px solid var(--ui-line); border-radius: 8px; list-style: none; font-size: .85rem; font-weight: 700; }
-    .crm-mobile-nav > summary::-webkit-details-marker { display: none; }
-    .crm-mobile-nav-panel { position: absolute; top: calc(100% + 8px); right: 0; z-index: 700; width: min(330px, calc(100vw - 24px)); max-height: calc(100dvh - 90px); overflow: auto; padding: 16px; border: 1px solid var(--ui-line); border-radius: 14px; background: var(--ui-surface); box-shadow: 0 12px 32px #0002; }
-    .crm-mobile-nav-panel .crm-navigation-group > p { margin-inline: 4px; }
-    .crm-demo-strip { padding: 7px 12px; font-size: .78rem; }
-    .crm-demo-strip > span:last-child { display: none; }
-    .crm-main { padding: 20px 14px 48px; }
-}
+/* Mappa del Gestionale (<x-gestionale.map>): MapLibre al posto di Leaflet, stesso aspetto dell'originale. */
+.gmap { position: relative; width: 100%; height: 100%; min-height: 200px; }
+.gmap-canvas, .gmap-canvas.maplibregl-map { position: absolute; inset: 0; width: 100%; height: 100%; font-family: var(--ui-font); background: var(--reko-paper); }
+.crm-scout-map > .gmap { position: absolute; inset: 0; }
+.gmap-loading { position: absolute; inset: 0; z-index: 3; }
+.gmap-notice { position: absolute; top: 8px; right: 52px; z-index: 3; max-width: 70%; pointer-events: none; }
+.gmap .maplibregl-ctrl-attribution { background: var(--reko-paper); color: var(--ui-muted); font-size: 12px; line-height: 1.5; }
+.gmap .maplibregl-ctrl-attribution a { color: var(--reko-accent-ink); }
+.gmap-tooltip .maplibregl-popup-content { padding: 6px 10px; border: 1px solid var(--reko-control-line); border-radius: 3px; background: var(--reko-paper); color: var(--reko-ink); font: 14px/1.4 var(--ui-font); box-shadow: 0 2px 8px #1b211d18; pointer-events: none; }
+.gmap-tooltip .maplibregl-popup-tip { display: none; }
+.gmap-sync { display: none; }
+.crm-location-map .gmap { min-height: 0; }
+.crm-public-zone-map .gmap { min-height: 0; }
 
-@media (max-width: 520px) {
-    .crm-app .crm-page-head { flex-wrap: wrap; gap: 12px; }
-    .crm-main > div.flex.flex-col.gap-6 { gap: 1rem; }
-}
+/* Agenda: pulsante "Chiudi" delle finestre (Button ghost icon del DemoDialog originale). */
+.crm-dialog-close { display: inline-flex; align-items: center; justify-content: center; width: 32px; flex-shrink: 0; border: 1px solid transparent; border-radius: 8px; background: transparent; color: inherit; }
+.crm-dialog-close:hover { background: var(--muted); }
+.crm-icon-btn { display: inline-grid; min-width: 40px; min-height: 40px; place-items: center; border: 0; border-radius: 8px; background: transparent; color: inherit; }
+.crm-icon-btn:hover { background: var(--ui-soft); }
+.gmap-selection-icon { flex: none; }
+.crm-catalog-picks { display: grid; gap: 8px; list-style: none; margin: 12px 0; padding: 0; }
+.crm-catalog-picks li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--ui-line); }

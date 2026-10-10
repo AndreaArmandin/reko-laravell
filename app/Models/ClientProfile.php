@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Gestionale\AgencySettings;
 use App\Models\Concerns\BelongsToAgency;
 use Database\Factories\ClientProfileFactory;
 use Illuminate\Database\Eloquent\Builder;
@@ -127,25 +128,36 @@ class ClientProfile extends Model
     public const NO_CALLBACK_STATUSES = ['Concluso', 'Sospeso', 'Non interessato'];
 
     /**
-     * "Da richiamare" (client-card.ts clientNeedsCallback) without activities yet: status
-     * 'Da contattare', or created more than contact_days ago, never Concluso/Sospeso/Non interessato.
-     * Completed with the last activity and pending calls in the Activities phase.
+     * "Da richiamare" (client-card.ts clientNeedsCallback), never for Concluso / Sospeso / Non interessato:
+     * 1. a pending "Telefonata" of the client decides alone: the earliest one, only if it is overdue
+     *    (a call already set for the future excludes the client, even when "Da contattare");
+     * 2. otherwise "Da contattare" always needs a callback;
+     * 3. otherwise the last completed activity of the client (or the creation date when there is none)
+     *    is older than the agency's contact_days.
+     * contact_days is the value saved for the agency (AgencySettings), never the env default alone.
      *
      * @param  Builder<ClientProfile>  $query
      */
     public function scopeNeedsCallback(Builder $query, ?int $contactDays = null): void
     {
-        $days = $contactDays ?? (int) config('gestionale.contact_days', 7);
-        $query->whereNotIn($query->qualifyColumn('status'), self::NO_CALLBACK_STATUSES)
-            ->where(fn (Builder $q) => $q->where($q->qualifyColumn('status'), 'Da contattare')
-                ->orWhere($q->qualifyColumn('created_at'), '<', now()->subDays($days)));
+        $days = max(1, $contactDays ?? AgencySettings::contactDays());
+        $table = $query->getModel()->getTable();
+        $placeholders = implode(', ', array_fill(0, count(self::NO_CALLBACK_STATUSES), '?'));
+        $link = "a.agency_id = {$table}.agency_id AND a.contact_id = {$table}.contact_id";
+        $pending = "SELECT 1 FROM activities a WHERE {$link} AND a.kind = 'Telefonata' AND a.status NOT IN ('Completata', 'Annullata')";
+        $earliest = "SELECT a.scheduled_at FROM activities a WHERE {$link} AND a.kind = 'Telefonata' AND a.status NOT IN ('Completata', 'Annullata') ORDER BY a.scheduled_at ASC NULLS LAST, a.id ASC LIMIT 1";
+        $last = "SELECT MAX(COALESCE(a.completed_at, a.outcome_confirmed_at)) FROM activities a WHERE {$link} AND a.status = 'Completata'";
+
+        $query->whereRaw("{$table}.status NOT IN ({$placeholders})", self::NO_CALLBACK_STATUSES)
+            ->whereRaw("CASE
+                WHEN EXISTS ({$pending}) THEN ({$earliest}) < NOW()
+                WHEN {$table}.status = 'Da contattare' THEN TRUE
+                ELSE COALESCE(({$last}), {$table}.created_at) < NOW() - (?::int * INTERVAL '1 day')
+            END", [$days]);
     }
 
     public function needsCallback(?int $contactDays = null): bool
     {
-        $days = $contactDays ?? (int) config('gestionale.contact_days', 7);
-
-        return ! in_array($this->status, self::NO_CALLBACK_STATUSES, true)
-            && ($this->status === 'Da contattare' || $this->created_at?->lt(now()->subDays($days)));
+        return static::query()->withoutGlobalScopes()->whereKey($this->getKey())->needsCallback($contactDays)->exists();
     }
 }
