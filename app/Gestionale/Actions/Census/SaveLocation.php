@@ -3,7 +3,7 @@
 namespace App\Gestionale\Actions\Census;
 
 use App\Gestionale\Audit;
-use App\Gestionale\Census\CensusReader;
+use App\Gestionale\Census\ArchiveColumns;
 use App\Gestionale\CommandRejected;
 use App\Gestionale\Commands;
 use App\Models\AgencyMembership;
@@ -43,6 +43,7 @@ final class SaveLocation extends CensusCommand
             $unit->updated_at = now();
             $unit->save();
             $this->audit->record('census.unit.location', $unit, ['before' => $before, 'after' => $unit->only(array_keys($before))], $reason);
+            ArchiveColumns::sync((int) $actor->agency_id, [(int) $unit->cadastral_unit_id]);
 
             return $unit;
         });

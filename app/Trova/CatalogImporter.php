@@ -437,6 +437,58 @@ final class CatalogImporter
     }
 
     /**
+     * Reasons to think twice before publishing: no parcel on the map, or far fewer units than the active edition.
+     *
+     * @return list<string>
+     */
+    public static function publishWarnings(CatalogRelease $release): array
+    {
+        $warnings = [];
+        $coverage = self::coverage($release->id);
+        if ($coverage['parcels'] > 0 && $coverage['located'] === 0) {
+            $warnings[] = 'Nessuna particella ha una posizione: il Comune non comparirà sulla mappa né nei filtri di raggio e zona.';
+        }
+        $activeId = DB::table('municipality_catalogs')->where('municipality_id', $release->municipality_id)->value('catalog_release_id');
+        if ($activeId !== null && (int) $activeId !== $release->id) {
+            $before = DB::table('cadastral_unit_versions')->where('catalog_release_id', $activeId)->count();
+            $now = DB::table('cadastral_unit_versions')->where('catalog_release_id', $release->id)->count();
+            if ($before > 0 && $now < $before * 0.7) {
+                $drop = (int) round(100 - $now * 100 / $before);
+                $warnings[] = "La bozza ha il {$drop}% di unità in meno dell’edizione pubblicata ({$now} contro {$before}): il file potrebbe essere parziale.";
+            }
+        }
+
+        return $warnings;
+    }
+
+    /**
+     * Brings an archived edition back as the one users search; the current one is archived.
+     *
+     * @throws RuntimeException
+     */
+    public function restore(CatalogRelease $release): void
+    {
+        DB::transaction(function () use ($release) {
+            $release = CatalogRelease::query()->lockForUpdate()->findOrFail($release->id);
+            if ($release->status !== 'archived') {
+                throw new RuntimeException('Si può ripristinare solo un’edizione archiviata.');
+            }
+            if (! DB::table('cadastral_unit_versions')->where('catalog_release_id', $release->id)->exists()) {
+                throw new RuntimeException('Questa edizione non ha più unità: non si può ripristinare.');
+            }
+            $currentId = DB::table('municipality_catalogs')->where('municipality_id', $release->municipality_id)->value('catalog_release_id');
+            if ($currentId !== null) {
+                CatalogRelease::query()->whereKey($currentId)->update(['status' => 'archived']);
+            }
+            DB::table('municipality_catalogs')->updateOrInsert(
+                ['municipality_id' => $release->municipality_id],
+                ['catalog_release_id' => $release->id, 'activated_at' => now(), 'updated_at' => now(), 'created_at' => now()],
+            );
+            $release->update(['status' => 'active']);
+        });
+    }
+
+    /**
      * Throws a draft away, with everything it loaded. A Comune created only by this draft goes too.
      *
      * @throws RuntimeException
@@ -457,7 +509,9 @@ final class CatalogImporter
                 DB::table($table)->where('catalog_release_id', $id)->delete();
             }
 
-            // Units and parcels that no edition uses any more
+            // Buildings, units and parcels that no edition uses any more
+            DB::delete('DELETE FROM buildings b WHERE b.municipality_id = ? AND NOT EXISTS (SELECT 1 FROM building_versions v WHERE v.building_id = b.id)
+                        AND NOT EXISTS (SELECT 1 FROM building_parcel_links l WHERE l.building_id = b.id)', [$municipalityId]);
             DB::delete('DELETE FROM cadastral_units u WHERE NOT EXISTS (SELECT 1 FROM cadastral_unit_versions v WHERE v.cadastral_unit_id = u.id)
                         AND u.parcel_id IN (SELECT id FROM parcels WHERE municipality_id = ?)', [$municipalityId]);
             DB::delete('DELETE FROM parcels p WHERE p.municipality_id = ? AND NOT EXISTS (SELECT 1 FROM cadastral_units u WHERE u.parcel_id = p.id)

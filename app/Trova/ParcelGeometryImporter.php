@@ -7,7 +7,6 @@ use App\Models\ImportIssue;
 use App\Models\ImportRun;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
-use JsonException;
 use RuntimeException;
 use Throwable;
 
@@ -16,8 +15,8 @@ use Throwable;
  * (for example the Agenzia delle Entrate cartography). A feature finds its parcel by section, sheet and number inside
  * the Comune of the edition: the Comune code only says which Comune the file belongs to.
  *
- * Sheet and number are read from the properties named in $mapping, or, when none are given, from the national
- * cadastral reference "D205_000100.123" (code, section, sheet, allegato, sviluppo, number).
+ * Sheet and number are read as GeoJsonSource::reference() says (mapped fields or national reference).
+ * The file is streamed and its coordinates moved from the EPSG of the run (default 6706, ETRF2000) to 4326.
  */
 final class ParcelGeometryImporter
 {
@@ -32,7 +31,7 @@ final class ParcelGeometryImporter
      *
      * @throws RuntimeException
      */
-    public function prepare(CatalogRelease $release, string $storedPath, string $originalName, array $mapping = []): ImportRun
+    public function prepare(CatalogRelease $release, string $storedPath, string $originalName, array $mapping = [], ?int $epsg = null): ImportRun
     {
         if ($release->status !== 'draft') {
             throw new RuntimeException('Le sagome si caricano su una bozza: importa prima il file SISTER.');
@@ -44,6 +43,7 @@ final class ParcelGeometryImporter
         if (! is_file($path)) {
             throw new RuntimeException('File non trovato.');
         }
+        $epsg = self::checkFile($path, $epsg);
 
         return ImportRun::query()->create([
             'municipality_id' => $release->municipality_id,
@@ -54,8 +54,39 @@ final class ParcelGeometryImporter
             'sha256' => hash_file('sha256', $path),
             'parser_version' => self::PARSER,
             'status' => 'queued',
-            'summary' => ['mapping' => array_filter($mapping, fn (string $v) => trim($v) !== '')],
+            'summary' => ['mapping' => array_filter($mapping, fn ($v) => is_string($v) && trim($v) !== ''), 'epsg' => $epsg],
         ]);
+    }
+
+    /**
+     * EPSG to use (given, declared in the file, or ETRF2000) after checking that the sample falls in Italy.
+     *
+     * @throws RuntimeException
+     */
+    public static function checkFile(string $path, ?int $epsg): int
+    {
+        $epsg ??= GeoJsonSource::declaredEpsg($path) ?? GeoJsonSource::DEFAULT_EPSG;
+        GeoJsonSource::assertEpsg($epsg);
+        $sample = GeoJsonSource::sample($path, 20);
+        if ($sample === []) {
+            throw new RuntimeException('Il file non contiene sagome (serve un GeoJSON FeatureCollection).');
+        }
+        $italy = GeoJsonSource::insideItaly($sample, $epsg);
+        if ($italy === null) {
+            throw new RuntimeException('Le prime sagome del file non sono poligoni (Polygon o MultiPolygon).');
+        }
+        if ($italy['inside'] === 0) {
+            throw new RuntimeException("Con EPSG:{$epsg} le sagome non cadono in Italia: controlla il sistema di riferimento del file.");
+        }
+
+        return $epsg;
+    }
+
+    /** An earlier upload of the very same file on this draft, if any. */
+    public static function duplicateOf(int $releaseId, string $source, string $sha256): ?ImportRun
+    {
+        return ImportRun::query()->where('catalog_release_id', $releaseId)->where('source_name', $source)->where('sha256', $sha256)
+            ->whereIn('status', ['queued', 'running', 'done'])->latest('id')->first();
     }
 
     /** Never throws: a failure is recorded on the run. */
@@ -90,49 +121,46 @@ final class ParcelGeometryImporter
         $mapping = $run->summary['mapping'] ?? [];
         $run->forceFill(['status' => 'running', 'started_at' => now()])->save();
 
-        try {
-            $data = json_decode((string) file_get_contents(Storage::disk('local')->path((string) $run->private_path)), true, flags: JSON_THROW_ON_ERROR);
-        } catch (JsonException) {
-            throw new RuntimeException('Il file non è un JSON valido.');
-        }
-        if (! is_array($data) || ($data['type'] ?? null) !== 'FeatureCollection' || ! is_array($data['features'] ?? null)) {
-            throw new RuntimeException('Il file deve essere un GeoJSON FeatureCollection.');
-        }
-
+        $epsg = (int) ($run->summary['epsg'] ?? GeoJsonSource::DEFAULT_EPSG);
         $read = $rejected = $matched = 0;
         $reported = 0;
         $notFound = [];
         $seen = [];
+        $rows = [];
 
-        foreach (array_chunk($data['features'], self::CHUNK, true) as $chunk) {
-            $rows = [];
-            foreach ($chunk as $index => $feature) {
-                $read++;
-                $geometry = is_array($feature) ? ($feature['geometry'] ?? null) : null;
-                $props = is_array($feature) && is_array($feature['properties'] ?? null) ? $feature['properties'] : [];
-
-                $ref = $this->reference($props, $mapping, $code);
-                if (is_string($ref) || ! is_array($geometry) || ! in_array($geometry['type'] ?? null, ['Polygon', 'MultiPolygon'], true)) {
-                    $rejected++;
-                    if ($reported++ < CatalogImporter::MAX_ISSUES) {
-                        $this->issue($run, 'warning', 'feature-rejected', is_string($ref) ? $ref : 'La geometria deve essere un Polygon o un MultiPolygon.', (int) $index + 1);
-                    }
-
-                    continue;
-                }
-
-                [$section, $sheet, $number] = $ref;
-                $seen["{$section}|{$sheet}|{$number}"] = true;
-                $rows[] = [$section, $sheet, $number, json_encode($geometry, JSON_THROW_ON_ERROR)];
-            }
-
+        $flush = function () use (&$rows, &$matched, &$notFound, &$read, &$rejected, $release, $epsg, $run) {
             if ($rows !== []) {
-                [$ok, $missing] = $this->write($release->municipality_id, $release->id, $rows);
+                [$ok, $missing] = $this->write($release->municipality_id, $release->id, $rows, $epsg);
                 $matched += $ok;
                 array_push($notFound, ...$missing);
+                $rows = [];
             }
             $run->forceFill(['rows_read' => $read, 'rows_imported' => $matched, 'rows_rejected' => $rejected])->save();
+        };
+
+        foreach (GeoJsonSource::features(Storage::disk('local')->path((string) $run->private_path)) as $index => $feature) {
+            $read++;
+            $geometry = $feature['geometry'] ?? null;
+            $props = is_array($feature['properties'] ?? null) ? $feature['properties'] : [];
+
+            $ref = GeoJsonSource::reference($props, $mapping, $code);
+            if (is_string($ref) || ! is_array($geometry) || ! in_array($geometry['type'] ?? null, ['Polygon', 'MultiPolygon'], true)) {
+                $rejected++;
+                if ($reported++ < CatalogImporter::MAX_ISSUES) {
+                    $this->issue($run, 'warning', 'feature-rejected', is_string($ref) ? $ref : 'La geometria deve essere un Polygon o un MultiPolygon.', (int) $index + 1);
+                }
+
+                continue;
+            }
+
+            [$section, $sheet, $number] = $ref;
+            $seen["{$section}|{$sheet}|{$number}"] = true;
+            $rows[] = [$section, $sheet, $number, json_encode($geometry, JSON_THROW_ON_ERROR)];
+            if (count($rows) >= self::CHUNK) {
+                $flush();
+            }
         }
+        $flush();
 
         $notFound = array_values(array_unique($notFound));
         if ($notFound !== []) {
@@ -167,27 +195,7 @@ final class ParcelGeometryImporter
      */
     private function reference(array $props, array $mapping, string $code): array|string
     {
-        if (isset($mapping['sheet'], $mapping['parcel'])) {
-            $sheet = $props[$mapping['sheet']] ?? null;
-            $number = $props[$mapping['parcel']] ?? null;
-            if (! is_scalar($sheet) || ! is_scalar($number) || trim((string) $sheet) === '' || trim((string) $number) === '') {
-                return 'Foglio o particella mancanti nelle proprietà indicate.';
-            }
-            $section = isset($mapping['section']) && is_scalar($props[$mapping['section']] ?? null) ? strtoupper(trim((string) $props[$mapping['section']])) : '';
-
-            return [$section, CatalogSearch::cadastralId((string) $sheet), CatalogSearch::cadastralId((string) $number)];
-        }
-
-        $national = $props['NATIONALCADASTALREFERENCE'] ?? $props['NATIONALCADASTRALREFERENCE'] ?? null;
-        if (is_string($national) && preg_match('/^([A-Z]\d{3})([A-Z_])(\d{4})(\w)(\w)\.(\w+)$/i', trim($national), $m)) {
-            if (strtoupper($m[1]) !== $code) {
-                return "La particella {$national} è di un altro Comune ({$m[1]}).";
-            }
-
-            return [$m[2] === '_' ? '' : strtoupper($m[2]), CatalogSearch::cadastralId($m[3]), CatalogSearch::cadastralId($m[6])];
-        }
-
-        return 'Non trovo foglio e particella: indica le proprietà che li contengono.';
+        return GeoJsonSource::reference($props, $mapping, $code);
     }
 
     /**
@@ -196,27 +204,27 @@ final class ParcelGeometryImporter
      * @param  list<array{0: string, 1: string, 2: string, 3: string}>  $rows  section, sheet, number, GeoJSON
      * @return array{0: int, 1: list<string>} parcels placed, labels of those not found
      */
-    private function write(int $municipalityId, int $releaseId, array $rows): array
+    private function write(int $municipalityId, int $releaseId, array $rows, int $epsg = 4326): array
     {
         $values = $bind = [];
         foreach ($rows as [$section, $sheet, $number, $json]) {
             $values[] = '(?::text, ?::text, ?::text, ?::text)';
             array_push($bind, $section, $sheet, $number, $json);
         }
-        array_push($bind, $municipalityId, $releaseId, $releaseId, $releaseId);
+        array_push($bind, $epsg, $municipalityId, $releaseId, $releaseId, $releaseId);
 
         $result = DB::select(
             'WITH f(section, sheet, number, g) AS (VALUES '.implode(',', $values).'),
              geom AS (
                  SELECT section, sheet, number,
-                        ST_Multi(ST_CollectionExtract(ST_MakeValid(ST_SetSRID(ST_GeomFromGeoJSON(g), 4326)), 3)) AS geom
+                        '.GeoJsonSource::geometrySql('g').' AS geom
                  FROM f
              ),
              target AS (
                  SELECT p.id AS parcel_id, p.section, p.sheet, p.number, ST_Multi(ST_Union(gm.geom)) AS geom
                  FROM geom gm
                  JOIN parcels p ON p.municipality_id = ? AND p.section = gm.section AND p.sheet = gm.sheet AND p.number = gm.number
-                 WHERE NOT ST_IsEmpty(gm.geom)
+                 WHERE NOT ST_IsEmpty(gm.geom) AND ST_Intersects(gm.geom, '.GeoJsonSource::italyEnvelopeSql().')
                    AND EXISTS (SELECT 1 FROM cadastral_units u JOIN cadastral_unit_versions v ON v.cadastral_unit_id = u.id AND v.catalog_release_id = ? WHERE u.parcel_id = p.id)
                  GROUP BY p.id, p.section, p.sheet, p.number
              ),

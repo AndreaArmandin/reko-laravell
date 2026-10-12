@@ -510,6 +510,10 @@ final class CensusImporter
             $this->audit->record('sister.import', $batch, ['rows' => count($rows), 'newOwners' => $newOwners]);
         }
 
+        if ($touched['units'] !== []) {
+            ArchiveColumns::sync((int) $actor->agency_id, array_map('intval', array_keys($touched['units'])));
+        }
+
         return ['id' => $batch?->id, 'unchanged' => $batch === null] + $this->summary($preview, array_keys($touched['parcels']), array_keys($touched['units']));
     }
 

@@ -3,13 +3,13 @@
 namespace App\Gestionale\Actions\Scouting;
 
 use App\Gestionale\Audit;
-use App\Gestionale\CommandRejected;
+use App\Gestionale\Census\ArchiveColumns;
 use App\Gestionale\Census\CensusScope;
+use App\Gestionale\CommandRejected;
 use App\Gestionale\Idempotency;
 use App\Models\AgencyMembership;
 use App\Models\AgencyUnitObservation;
 use App\Models\CensusBatch;
-use App\Models\CadastralUnit;
 use App\Trova\CatalogSearch;
 use App\Trova\Presentation;
 use Illuminate\Support\Facades\DB;
@@ -231,6 +231,7 @@ final class AcquireCatalogParcels
             'issues' => [],
         ]);
         AgencyUnitObservation::query()->whereIn('cadastral_unit_id', $records->pluck('unit_id'))->update(['census_batch_id' => $batch->id]);
+        ArchiveColumns::sync((int) $actor->agency_id, $records->pluck('unit_id')->map(fn ($id) => (int) $id)->all());
         $this->audit->record('catalog.acquire', $batch, ['units' => $records->count(), 'parcels' => count($parcelIds), 'catalogReleaseId' => (int) $records->first()->catalog_release_id]);
 
         return ['id' => $batch->id, 'unchanged' => false, 'units' => $records->count(), 'parcels' => count($parcelIds)];

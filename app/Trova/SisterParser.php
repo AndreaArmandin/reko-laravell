@@ -5,7 +5,7 @@ namespace App\Trova;
 /**
  * Reads the text export of SISTER (fabbricati), ported from Trova lib/crm/catalog-consolidation.ts and sister-text.ts.
  *
- * Columns, tab separated or in a Markdown table:
+ * Columns, tab separated, in a Markdown table or CSV (";" or "," with quoted decimals):
  *   0 foglio (or sezione/foglio) · 1 particella · 2 subalterno · 3 indirizzo · 4 zona censuaria
  *   5 categoria · 6 classe · 7 consistenza ("3,5 vani", "20 m²") · 8 rendita · 9 partita · 10 flag
  * Empty cells are kept: removing them would shift category and consistency.
@@ -33,6 +33,18 @@ final class SisterParser
             }
 
             return $cells;
+        }
+
+        // CSV export (";" or ","): only when there is no tab, and with enough columns to be a unit row
+        if (! str_contains($text, "\t")) {
+            foreach ([';', ','] as $delimiter) {
+                if (str_contains($text, $delimiter)) {
+                    $csv = array_map(fn ($c) => trim((string) $c), str_getcsv($text, $delimiter, '"', ''));
+                    if (count($csv) >= 6) {
+                        return $csv;
+                    }
+                }
+            }
         }
 
         $cells = array_map('trim', explode("\t", $text));

@@ -3,6 +3,7 @@
 namespace App\Gestionale\Actions\Census;
 
 use App\Gestionale\Audit;
+use App\Gestionale\Census\ArchiveColumns;
 use App\Gestionale\Census\Holding;
 use App\Gestionale\CommandRejected;
 use App\Gestionale\Commands;
@@ -85,6 +86,7 @@ final class SaveCadastral extends CensusCommand
                 $holdings[(int) $contactId] = $holding;
             }
             $this->audit->record('archive.save', $unit, ['before' => $before, 'after' => $unit->only(array_keys($before)), 'holdings' => $holdings], self::text($input['reason'] ?? ''));
+            ArchiveColumns::sync((int) $actor->agency_id, [$unitId]);
 
             return $unit;
         });

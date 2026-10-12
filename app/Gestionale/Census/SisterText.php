@@ -325,7 +325,7 @@ final class SisterText
         return true;
     }
 
-    private static function fold(string $input): string
+    public static function fold(string $input): string
     {
         $n = \Normalizer::normalize($input, \Normalizer::FORM_KD);
         $n = (string) preg_replace('/\p{M}/u', '', $n === false ? $input : $n);

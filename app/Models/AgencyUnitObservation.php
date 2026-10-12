@@ -28,6 +28,7 @@ class AgencyUnitObservation extends Model
             'data' => 'array',
             'situation_date' => 'date:Y-m-d',
             'last_verified' => 'date:Y-m-d',
+            'last_outcome_at' => 'datetime',
             'removed' => 'array',
             'subject_holding' => 'array',
             'income' => 'float',

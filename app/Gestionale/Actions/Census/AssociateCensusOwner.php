@@ -3,7 +3,7 @@
 namespace App\Gestionale\Actions\Census;
 
 use App\Gestionale\Audit;
-use App\Gestionale\Census\CensusImporter;
+use App\Gestionale\Census\ArchiveColumns;
 use App\Gestionale\Census\Holding;
 use App\Gestionale\CommandRejected;
 use App\Models\AgencyMembership;
@@ -68,6 +68,7 @@ final class AssociateCensusOwner extends CensusCommand
                     'kind' => 'Associazione', 'raw_text' => $note, 'exact_date_unknown' => $effectiveDate === '', 'actor_user_id' => $actor->user_id],
             ]);
             $this->audit->record('census.associate', $ownership, ['unitId' => $unitId, 'ownerId' => $ownerId, 'holding' => $holding], $note);
+            ArchiveColumns::sync((int) $actor->agency_id, [$unitId]);
 
             return $ownership;
         });

@@ -160,8 +160,7 @@ it('refuses geometry without a draft or with unreadable files', function () {
     $geometry = app(ParcelGeometryImporter::class);
 
     $bad = Storage::disk('local')->put('catalog-imports/bad.geojson', '{non json');
-    $run = $geometry->process($geometry->prepare($release, 'catalog-imports/bad.geojson', 'bad.geojson'));
-    expect($run->status)->toBe('failed')->and($run->issues()->first()->message)->toBe('Il file non è un JSON valido.');
+    expect(fn () => $geometry->prepare($release, 'catalog-imports/bad.geojson', 'bad.geojson'))->toThrow(RuntimeException::class);
 
     $empty = catGeoFile([catGeometry('77', '77', 7.5, 44.3)], 'nomatch.geojson');
     $run = $geometry->process($geometry->prepare($release, $empty, 'nomatch.geojson', ['sheet' => 'FOGLIO', 'parcel' => 'PARTICELLA']));

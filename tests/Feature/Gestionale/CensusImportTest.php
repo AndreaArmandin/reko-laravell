@@ -1,9 +1,9 @@
 <?php
 
+use App\Gestionale\Audit;
 use App\Gestionale\Census\CensusImporter;
 use App\Gestionale\Census\CensusQuery;
 use App\Gestionale\Census\CensusReader;
-use App\Gestionale\Audit;
 use App\Gestionale\CommandRejected;
 use App\Models\Activity;
 use App\Models\AgencyMembership;
@@ -195,6 +195,40 @@ it('filters, searches and orders the census like the original', function () {
 
     expect(fn () => (new CensusQuery(AgencyMembership::factory()->crm()->create(['agency_id' => $this->admin->agency_id])))->run([]))
         ->toThrow(CommandRejected::class, 'Sezione Proprietari non accessibile.');
+});
+
+it('pages a filtered municipality in the database instead of loading every unit', function () {
+    $lines = [];
+    for ($i = 1; $i <= 25; $i++) {
+        $lines[] = census_estate('1', 'VIA ROMA n. '.$i, 'A/3', '10', (string) $i);
+    }
+    census_import($this->admin, implode("\n", $lines));
+
+    $selects = [];
+    DB::listen(function ($query) use (&$selects) {
+        $sql = strtolower($query->sql);
+        if (str_contains($sql, 'from "agency_unit_observations"') && str_starts_with(ltrim($sql), 'select') && ! str_contains($sql, 'count(')) {
+            $selects[] = $sql;
+        }
+    });
+
+    $query = ['view' => 'Immobili', 'filters' => ['municipalityCode' => ['F205'], 'sheet' => ['10']], 'size' => 20];
+    $page = (new CensusQuery($this->admin))->run($query + ['page' => 1]);
+    $firstIds = array_column($page['items'], 'unitId');
+
+    expect($page['total'])->toBe(25)
+        ->and($page['items'])->toHaveCount(20)
+        ->and($selects)->not->toBeEmpty()
+        ->and(collect($selects)->every(fn (string $sql) => str_contains($sql, 'limit') || str_contains($sql, ' in (')))->toBeTrue()
+        ->and($page['nextCursor'])->toBeArray();
+
+    $selects = [];
+    $next = (new CensusQuery($this->admin))->run($query + ['after' => $page['nextCursor']]);
+
+    expect($next['items'])->toHaveCount(5)
+        ->and(array_intersect($firstIds, array_column($next['items'], 'unitId')))->toBe([])
+        ->and($next['nextCursor'])->toBeNull()
+        ->and(collect($selects)->every(fn (string $sql) => str_contains($sql, 'limit') || str_contains($sql, ' in (')))->toBeTrue();
 });
 
 it('returns only the requested page of default municipality results', function () {

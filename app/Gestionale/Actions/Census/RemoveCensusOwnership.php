@@ -3,6 +3,7 @@
 namespace App\Gestionale\Actions\Census;
 
 use App\Gestionale\Audit;
+use App\Gestionale\Census\ArchiveColumns;
 use App\Gestionale\CommandRejected;
 use App\Models\AgencyMembership;
 use App\Models\Contact;
@@ -39,6 +40,7 @@ final class RemoveCensusOwnership extends CensusCommand
             $details['exact_date_unknown'] = $effectiveDate === null;
             $ownership->forceFill(['valid_to' => $effectiveDate ?? now()->toDateString(), 'details' => $details])->save();
             $this->audit->record('census.unlink', $ownership, ['before' => $before, 'after' => $ownership->only(['valid_from', 'valid_to', 'details'])], $reason);
+            ArchiveColumns::sync((int) $actor->agency_id, [$unitId]);
 
             return $ownership;
         });

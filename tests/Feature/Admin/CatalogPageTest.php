@@ -1,11 +1,8 @@
 <?php
 
 use App\Models\CatalogRelease;
-use App\Models\ImportRun;
 use App\Models\Municipality;
 use App\Models\User;
-use App\Trova\CatalogSearch;
-use App\Trova\SearchException;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
@@ -31,14 +28,14 @@ function pageUnits(): array
     ];
 }
 
-function pageParcels(): UploadedFile
+function pageGeo(string $name, array $features): UploadedFile
 {
-    $feature = fn ($sheet, $parcel, $lng) => ['type' => 'Feature', 'properties' => ['FOGLIO' => $sheet, 'NUMERO' => $parcel],
-        'geometry' => ['type' => 'Polygon', 'coordinates' => [[[$lng, 44.39], [$lng + 0.001, 44.39], [$lng + 0.001, 44.391], [$lng, 44.391], [$lng, 44.39]]]]];
+    return UploadedFile::fake()->createWithContent($name, json_encode(['type' => 'FeatureCollection', 'features' => $features]));
+}
 
-    return UploadedFile::fake()->createWithContent('particelle.geojson', json_encode(['type' => 'FeatureCollection', 'features' => [
-        $feature('1', '10', 7.55), $feature('1', '20', 7.551), $feature('2', '5', 7.552),
-    ]]));
+function pageSquare(float $lng, float $size = 0.001): array
+{
+    return ['type' => 'Polygon', 'coordinates' => [[[$lng, 44.39], [$lng + $size, 44.39], [$lng + $size, 44.39 + $size], [$lng, 44.39 + $size], [$lng, 44.39]]]];
 }
 
 beforeEach(function () {
@@ -46,117 +43,75 @@ beforeEach(function () {
     $this->actingAs(User::factory()->create(['is_admin' => true]));
 });
 
-it('is reserved to platform admins', function () {
+it('is reserved to platform admins and lists the Comuni', function () {
+    Municipality::query()->create(['cadastral_code' => 'D998', 'name' => 'Altro Comune']);
     auth()->logout();
     $this->get(route('admin.catalog.index'))->assertRedirect(route('login'));
-
     $this->actingAs(User::factory()->create(['is_admin' => false]))->get(route('admin.catalog.index'))->assertForbidden();
 
-    $this->actingAs(User::factory()->create(['is_admin' => true]))->get(route('admin.catalog.index'))
-        ->assertOk()->assertSee('Catalogo')->assertSee('Nessuna bozza.')->assertSee('Nessuna edizione.');
+    $this->actingAs(User::factory()->create(['is_admin' => true]))->get(route('admin.catalog.index'))->assertOk()->assertSee('Altro Comune');
+    Livewire::test('pages::admin.catalog.index')->set('search', 'zzz')->assertDontSee('Altro Comune')->set('search', 'D998')->assertSee('Altro Comune');
 });
 
-it('goes from a SISTER file to a published, searchable Comune', function () {
-    $page = Livewire::test('pages::admin.catalog.index')
-        ->set('code', 'd999')
-        ->set('name', 'Comune di Prova')
-        ->set('note', 'primo caricamento')
-        ->set('file', pageSister(pageUnits()))
-        ->call('importSister')
-        ->assertHasNoErrors()
-        ->assertSee('Import avviato')
-        ->assertSee('Comune di Prova (D999)')
-        ->assertSee('Completato')
-        ->assertSee('0 / 3')                 // 3 parcels, none placed yet
-        ->assertSee('Carica le sagome al passo 2');
+it('adds a Comune and walks the wizard: SISTER, parcels, buildings, publish, new edition, restore', function () {
+    Livewire::test('pages::admin.catalog.index')->set('adding', true)->set('name', 'Comune di Prova')->set('code', 'd999')
+        ->call('addMunicipality')->assertHasNoErrors()->assertRedirect();
+    $m = Municipality::query()->where('cadastral_code', 'D999')->sole();
 
-    $municipality = Municipality::query()->where('cadastral_code', 'D999')->sole();
-    $draft = CatalogRelease::query()->where('municipality_id', $municipality->id)->sole();
-    expect($draft->status)->toBe('draft')->and($draft->notes)->toBe('primo caricamento')
-        ->and(ImportRun::query()->sole()->status)->toBe('done');
+    $page = Livewire::test('pages::admin.catalog.show', ['municipality' => $m])
+        ->set('file', pageSister(pageUnits()))->call('importSister')->assertHasNoErrors()->assertSee('0 / 3');   // SISTER done: the wizard moves on to the parcels
 
-    $page->set('geoReleaseId', $draft->id)
-        ->set('geoFile', pageParcels())
-        ->set('sheetProperty', 'FOGLIO')
-        ->set('parcelProperty', 'NUMERO')
-        ->call('importGeometry')
-        ->assertHasNoErrors()
-        ->assertSee('Caricamento delle sagome avviato')
-        ->assertSee('3 / 3')
-        ->assertSee('3 particelle collocate');
+    // parcels: fields detected from the file, sample checked before importing
+    $parcels = pageGeo('particelle.geojson', [
+        ['type' => 'Feature', 'properties' => ['FOGLIO' => '1', 'NUMERO' => '10'], 'geometry' => pageSquare(7.55)],
+        ['type' => 'Feature', 'properties' => ['FOGLIO' => '1', 'NUMERO' => '20'], 'geometry' => pageSquare(7.552)],
+        ['type' => 'Feature', 'properties' => ['FOGLIO' => '2', 'NUMERO' => '5'], 'geometry' => pageSquare(7.554)],
+    ]);
+    // a file without foglio/particella is refused with a plain message
+    $page->call('goTo', 'parcels')->set('geoFile', pageGeo('strade.geojson', [['type' => 'Feature', 'properties' => ['NOME' => 'Via Roma'], 'geometry' => pageSquare(7.55)]]))
+        ->assertSee('Nel file non trovo foglio e particella')->call('importGeometry')->assertHasErrors('geoFile');
+    $page->set('geoFile', $parcels)
+        ->assertSet('check.map.sheet', 'FOGLIO')->assertSet('check.map.parcel', 'NUMERO')->assertSet('check.epsg', 6706)
+        ->assertSee('File riconosciuto: foglio e particella trovati · 3/3 sagome del campione abbinate')
+        ->call('importGeometry')->assertHasNoErrors()->assertSee('3 particelle collocate');
 
-    expect(fn () => (new CatalogSearch)->search(['code' => 'D999', 'segment' => 'private', 'min' => 3, 'max' => 5]))->toThrow(SearchException::class);
+    // buildings: no parcel fields, linked by position
+    $page->call('goTo', 'buildings')->set('geoFile', pageGeo('fabbricati.geojson', [
+        ['type' => 'Feature', 'properties' => ['ID' => 'B1'], 'geometry' => pageSquare(7.5502, 0.0005)],
+        ['type' => 'Feature', 'properties' => ['ID' => 'B2'], 'geometry' => pageSquare(7.70, 0.0005)],   // on no parcel
+    ]))->assertSee('per posizione')->call('importGeometry')->assertHasNoErrors()->assertSee('1 fabbricati collegati');
+    $draft = CatalogRelease::query()->where('municipality_id', $m->id)->sole();
+    expect(DB::table('building_versions')->where('catalog_release_id', $draft->id)->count())->toBe(1)
+        ->and(DB::table('building_parcel_links')->where('catalog_release_id', $draft->id)->count())->toBe(1);
 
-    $page->call('publish', $draft->id)->assertSee('Edizione pubblicata')->assertSee('Pubblicata')->assertSee('Nessuna bozza.');
+    // outlines outside Italy are caught on the sample
+    $page->set('geoFile', pageGeo('parigi.geojson', [['type' => 'Feature', 'properties' => [], 'geometry' => pageSquare(2.35)]]))
+        ->assertSee('non cadono in Italia');
 
-    expect((new CatalogSearch)->search(['code' => 'D999', 'segment' => 'private', 'min' => 3, 'max' => 5, 'circle' => ['lat' => 44.3905, 'lng' => 7.5515, 'radius' => 500]])->total)->toBe(2);   // 2 parcels: total counts parcels, not units
+    $page->call('goTo', 'summary')->call('publish')->assertSee('Edizione pubblicata');
+    expect($draft->fresh()->status)->toBe('active');
+
+    // new edition with half the units: publishing asks for a confirmation; buildings carried over
+    $page->set('newEdition', true)->set('file', pageSister(array_slice(pageUnits(), 0, 1)))->call('importSister')
+        ->call('goTo', 'summary')->assertSee('unità in meno')->call('publish')->assertHasErrors('publish')
+        ->set('confirmRisk', true)->call('publish')->assertHasNoErrors();
+    expect($draft->fresh()->status)->toBe('archived');
+
+    $page->call('restore', $draft->id)->assertSee('Edizione ripristinata');
+    expect($draft->fresh()->status)->toBe('active')
+        ->and(DB::table('municipality_catalogs')->where('municipality_id', $m->id)->value('catalog_release_id'))->toBe($draft->id);
 });
 
-it('shows what changed in a new edition and lets the admin discard it', function () {
-    $page = Livewire::test('pages::admin.catalog.index')
-        ->set('code', 'D999')->set('name', 'Comune di Prova')->set('file', pageSister(pageUnits()))->call('importSister');
-    $first = CatalogRelease::query()->sole();
-    $page->call('publish', $first->id);
-
-    $changed = pageUnits();
-    $changed[1][5] = '6 vani';
-    $changed[] = ['3', '8', '1', 'VIA NUOVA n. 2 Piano T', 'A02', '3 vani'];
-
-    $page->set('code', 'D999')->set('file', pageSister($changed))->call('importSister')
-        ->assertHasNoErrors()
-        ->assertSee('Rispetto all’edizione '.$first->code)
-        ->assertSee('nuove')
-        ->assertSee('variate');
-
-    $draft = CatalogRelease::query()->where('status', 'draft')->sole();
-    expect(ImportRun::query()->where('catalog_release_id', $draft->id)->value('summary')['diff'])->toEqual(['added' => 1, 'changed' => 1, 'unchanged' => 3, 'removed' => 0]);
-
-    $page->call('discard', $draft->id)->assertSee('Bozza scartata');
-    expect(CatalogRelease::query()->count())->toBe(1)->and($first->fresh()->status)->toBe('active');
-});
-
-it('tells the admin what is wrong with the forms', function () {
-    Livewire::test('pages::admin.catalog.index')
-        ->call('importSister')
-        ->assertHasErrors(['code', 'file'])
-        ->assertSee('Indica il codice catastale del Comune.')
-        ->assertSee('Carica il file SISTER.')
-        ->set('code', 'D20')->set('file', pageSister(pageUnits()))->call('importSister')
-        ->assertSee('Il codice catastale ha una lettera e tre cifre, per esempio D205.')
-        ->set('code', 'D999')->call('importSister')
-        ->assertSee('Il Comune D999 non esiste ancora: indica anche il nome.')
-        ->set('file', UploadedFile::fake()->createWithContent('export.pdf', 'x'))->call('importSister')
-        ->assertSee('Il file deve essere un .txt, .csv o .tsv.')
-        ->call('importGeometry')
-        ->assertSee('Scegli la bozza a cui appartengono le sagome.')
-        ->assertSee('Carica il file GeoJSON.');
-
-    expect(Municipality::query()->count())->toBe(0)->and(CatalogRelease::query()->count())->toBe(0);
-});
-
-it('refuses a second draft for the same Comune and half a property mapping', function () {
-    $page = Livewire::test('pages::admin.catalog.index')
-        ->set('code', 'D999')->set('name', 'Comune di Prova')->set('file', pageSister(pageUnits()))->call('importSister')
-        ->set('code', 'D999')->set('file', pageSister(pageUnits()))->call('importSister')
-        ->assertSee('ha già una bozza');
-
-    $draft = CatalogRelease::query()->sole();
-    $page->set('geoReleaseId', $draft->id)->set('geoFile', pageParcels())->set('sheetProperty', 'FOGLIO')->call('importGeometry')
-        ->assertSee('Indica sia la proprietà del foglio sia quella della particella');
-
-    expect(DB::table('parcel_search_points')->count())->toBe(0);
-});
-
-it('reports a file with no SISTER rows as failed and lets the admin throw the draft away', function () {
-    $page = Livewire::test('pages::admin.catalog.index')
-        ->set('code', 'D999')->set('name', 'Vuoto')
-        ->set('file', UploadedFile::fake()->createWithContent('vuoto.txt', "SISTER\nniente di utile\n"))
-        ->call('importSister')
-        ->assertSee('Fallito')
-        ->assertSee('Nessuna unità riconosciuta');
-
-    $page->call('publish', CatalogRelease::query()->sole()->id)->assertSee('La bozza non è pronta');
-    $page->call('discard', CatalogRelease::query()->sole()->id);
-
-    expect(CatalogRelease::query()->count())->toBe(0)->and(Municipality::query()->count())->toBe(0);
+it('imports the dummy Torino parcels file with an enabled Importa button', function () {
+    $dir = getenv('HOME').'/Downloads/reko-dummy-torino';
+    if (! is_file("$dir/particelle-torino-dummy.geojson")) {
+        $this->markTestSkipped('dummy Torino non presente');
+    }
+    $m = Municipality::query()->create(['cadastral_code' => 'L219', 'name' => 'Torino']);
+    $page = Livewire::test('pages::admin.catalog.show', ['municipality' => $m])
+        ->set('file', UploadedFile::fake()->createWithContent('sister.txt', file_get_contents("$dir/sister-torino-dummy.txt")))->call('importSister')->assertHasNoErrors()
+        ->call('goTo', 'parcels')
+        ->set('geoFile', UploadedFile::fake()->createWithContent('particelle.geojson', file_get_contents("$dir/particelle-torino-dummy.geojson")))
+        ->assertSee('13/13');
+    $page->call('importGeometry')->assertHasNoErrors()->assertSee('13 particelle collocate');
 });

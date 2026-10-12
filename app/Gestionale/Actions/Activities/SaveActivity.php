@@ -6,6 +6,7 @@ use App\Gestionale\Activities\ActivityAccess;
 use App\Gestionale\Activities\ActivityCatalog;
 use App\Gestionale\Activities\Notifier;
 use App\Gestionale\Audit;
+use App\Gestionale\Census\ArchiveColumns;
 use App\Gestionale\Census\ObservedUnits;
 use App\Gestionale\CommandRejected;
 use App\Gestionale\Commands;
@@ -339,6 +340,7 @@ final class SaveActivity
         }
         $this->audit->record($old ? 'activity.save' : 'activity.create', $activity,
             $old && $reason !== '' ? ['before' => $before] : ['kind' => $activity->kind, 'subject' => $activity->subject], $reason ?: null);
+        ArchiveColumns::syncOutcomes((int) $actor->agency_id, array_values(array_unique([...$units, ...$oldUnits])));
 
         return $activity;
     }

@@ -24,6 +24,7 @@ Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(fun
 
     // Catalogo: edizioni SISTER in bozza, sagome delle particelle, pubblicazione
     Route::livewire('catalog', 'pages::admin.catalog.index')->name('catalog.index');
+    Route::livewire('catalog/{municipality}', 'pages::admin.catalog.show')->name('catalog.show');
 
     // Zone di ricerca (quartieri, frazioni) da file GeoJSON
     Route::livewire('zones', 'pages::admin.zones.index')->name('zones.index');

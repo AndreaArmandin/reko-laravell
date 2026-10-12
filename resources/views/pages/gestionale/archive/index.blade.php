@@ -65,6 +65,11 @@ new #[Layout('layouts::gestionale'), Title('Archivio catastale')] class extends 
     public array $filterValues = [];
     public string $order = 'Da contattare';
     public string $firstOutcome = 'Interessato';
+    public ?array $after = null;
+
+    /** @var list<?array<string, mixed>> */
+    public array $cursorStack = [];
+
     public int $page = 1;
     /** @var list<int> */
     public array $selectedUnitIds = [];
@@ -722,7 +727,7 @@ new #[Layout('layouts::gestionale'), Title('Archivio catastale')] class extends 
         return (new CensusQuery($this->membership))->run([
             'view' => $this->view, 'search' => mb_substr($this->search, 0, 300), 'filters' => $filters,
             'parcelId' => $this->focusParcelId, 'unitId' => $this->focusUnitId, 'ownerId' => $this->focusOwnerId,
-            'page' => max(1, $this->page), 'size' => 20,
+            'page' => max(1, $this->page), 'size' => 20, 'after' => $this->after,
             'order' => in_array($this->order, ['Da contattare', 'Ultima attività', 'Esito'], true) ? $this->order : 'Da contattare',
             'firstOutcome' => in_array($this->firstOutcome, ['Nessun esito', ...CensusQuery::outcomes()], true) ? $this->firstOutcome : 'Interessato',
         ]);
@@ -830,6 +835,8 @@ new #[Layout('layouts::gestionale'), Title('Archivio catastale')] class extends 
     private function resetResults(): void
     {
         $this->page = 1;
+        $this->after = null;
+        $this->cursorStack = [];
         $this->ownerUnitsPage = 1;
         $this->selectedUnitIds = [];
         $this->openOwnerId = null;
@@ -839,11 +846,38 @@ new #[Layout('layouts::gestionale'), Title('Archivio catastale')] class extends 
     private function resetPage(): void
     {
         $this->page = 1;
+        $this->after = null;
+        $this->cursorStack = [];
+        unset($this->results);
+    }
+
+    public function nextPage(?array $cursor): void
+    {
+        if ($cursor === null || $this->page >= (int) ceil($this->results['total'] / 20)) {
+            return;
+        }
+        $this->cursorStack[] = $this->after;
+        $this->after = $cursor;
+        $this->page++;
+        $this->selectedUnitIds = [];
+        unset($this->results);
+    }
+
+    public function prevPage(): void
+    {
+        if ($this->page <= 1) {
+            return;
+        }
+        $this->after = array_pop($this->cursorStack);
+        $this->page--;
+        $this->selectedUnitIds = [];
         unset($this->results);
     }
 
     public function setPage(int $page): void
     {
+        $this->after = null;
+        $this->cursorStack = [];
         $this->page = max(1, min($page, max(1, (int) ceil($this->results['total'] / 20))));
         $this->selectedUnitIds = [];
         unset($this->results);
@@ -1342,7 +1376,7 @@ new #[Layout('layouts::gestionale'), Title('Archivio catastale')] class extends 
         // Con la finestra «Modifica anagrafica» aperta il recapito si modifica da lì, non anche dalla scheda sotto.
         $cardContactId = $ownerEditorOpen ? null : $contactId;
         // Richieste che mostrano lo stato «Caricamento archivio catastale…» (useCensusQuery: loading).
-        $loadingTargets = 'selectMunicipality,chooseMunicipalityOption,view,mode,search,outcome,sheet,parcel,sub,withoutSub,locality,address,civic,floor,firstName,lastName,taxCode,filterValues,order,firstOutcome,setPage,setOwnerUnitsPage,showOwnerProperties,resetFilters,clearFocus';
+        $loadingTargets = 'selectMunicipality,chooseMunicipalityOption,view,mode,search,outcome,sheet,parcel,sub,withoutSub,locality,address,civic,floor,firstName,lastName,taxCode,filterValues,order,firstOutcome,setPage,nextPage,prevPage,setOwnerUnitsPage,showOwnerProperties,resetFilters,clearFocus';
     @endphp
     <div class="crm-page-head">
         <div>
@@ -1387,7 +1421,7 @@ new #[Layout('layouts::gestionale'), Title('Archivio catastale')] class extends 
         @if ($municipalityCode === '')
             <p class="crm-info">Seleziona il Comune per aprire i filtri e le schede dell’archivio.</p>
         @else
-            <details class="census-advanced-filters"><summary>Filtri avanzati</summary>
+            <details class="census-advanced-filters" wire:ignore.self wire:key="archive-advanced-filters"><summary>Filtri avanzati</summary>
                 <div class="crm-tabs" aria-label="Modalità di ricerca catastale">
                     @foreach (['catastale' => 'Riferimenti catastali', 'frazione' => 'Frazione', 'indirizzo' => 'Indirizzo', 'proprietario' => 'Proprietario'] as $key => $label)
                         <button type="button" wire:click="$set('mode', '{{ $key }}')" aria-pressed="{{ $mode === $key ? 'true' : 'false' }}">{{ $label }}</button>
@@ -1402,7 +1436,7 @@ new #[Layout('layouts::gestionale'), Title('Archivio catastale')] class extends 
                             <label class="crm-check"><input type="checkbox" wire:model.live="withoutSub">Senza subalterno nella fonte</label>
                         </div>
                         <p class="crm-muted">Per una ricerca precisa inserisci foglio, particella e subalterno, oppure indica che il subalterno è assente.</p>
-                        <details><summary>Mostra dettagli aggiuntivi</summary><div class="crm-form-grid"><label class="crm-field"><span>Categoria</span><input wire:model.live.debounce.250ms="filterValues.category"></label></div></details>
+                        <details wire:ignore.self><summary>Mostra dettagli aggiuntivi</summary><div class="crm-form-grid"><label class="crm-field"><span>Categoria</span><input wire:model.live.debounce.250ms="filterValues.category"></label></div></details>
                     @elseif ($mode === 'frazione')
                         <label class="crm-field"><span>Frazione</span><input wire:model.live.debounce.250ms="locality" placeholder="Es. San Rocco Castagnaretta"></label>
                         <p class="crm-muted">Cerca nelle frazioni compilate nella scheda. Non vengono dedotte dall’indirizzo SISTER.</p>
@@ -1421,7 +1455,7 @@ new #[Layout('layouts::gestionale'), Title('Archivio catastale')] class extends 
                         <p class="crm-muted">Per le anagrafiche non ancora separate, nome e cognome cercano nel nominativo completo. Il codice fiscale distingue gli omonimi.</p>
                     @endif
                 </div>
-                <details class="census-operational-filters"><summary>Filtri operativi</summary>
+                <details class="census-operational-filters" wire:ignore.self><summary>Filtri operativi</summary>
                     <div class="crm-form-grid">
                         <label class="crm-field"><span>Con proprietario</span><select wire:model.live="filterValues.hasOwner"><option value="">Tutti</option><option>Sì</option><option>No</option></select></label>
                         <label class="crm-field"><span>Con recapito</span><select wire:model.live="filterValues.hasContact"><option value="">Tutti</option><option>Sì</option><option>No</option></select></label>
@@ -1457,7 +1491,7 @@ new #[Layout('layouts::gestionale'), Title('Archivio catastale')] class extends 
                     <button type="button" class="crm-btn secondary" wire:click="openBulkRemoval" @disabled($selectedUnitIds === [])>Elimina questi immobili</button>
                 </div>
             @endif
-            @include('gestionale.archive.pager', ['total' => $this->results['total'], 'size' => $this->results['size'], 'page' => $page, 'setter' => 'setPage', 'label' => 'Pagine risultati'])
+            @include('gestionale.archive.pager', ['total' => $this->results['total'], 'size' => $this->results['size'], 'page' => $page, 'setter' => 'setPage', 'label' => 'Pagine risultati', 'cursor' => true, 'nextCursor' => $this->results['nextCursor']])
             @if ($view === 'Immobili')
                 @foreach ($this->results['items'] as $entry)
                     @if (($entry['kind'] ?? 'unit') === 'terrain')
@@ -1503,7 +1537,7 @@ new #[Layout('layouts::gestionale'), Title('Archivio catastale')] class extends 
                 @endforeach
             @endif
             @if ($this->results['total'] === 0)<div class="crm-empty">Nessun risultato con questi filtri.</div>@endif
-            @include('gestionale.archive.pager', ['total' => $this->results['total'], 'size' => $this->results['size'], 'page' => $page, 'setter' => 'setPage', 'label' => 'Pagine risultati'])
+            @include('gestionale.archive.pager', ['total' => $this->results['total'], 'size' => $this->results['size'], 'page' => $page, 'setter' => 'setPage', 'label' => 'Pagine risultati', 'cursor' => true, 'nextCursor' => $this->results['nextCursor']])
         @endif
     </div>
 

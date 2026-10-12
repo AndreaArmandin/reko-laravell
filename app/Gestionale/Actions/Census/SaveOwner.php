@@ -3,6 +3,7 @@
 namespace App\Gestionale\Actions\Census;
 
 use App\Gestionale\Audit;
+use App\Gestionale\Census\ArchiveColumns;
 use App\Gestionale\Census\SisterText;
 use App\Gestionale\CommandRejected;
 use App\Gestionale\Commands;
@@ -55,6 +56,7 @@ final class SaveOwner extends CensusCommand
             $contact->updated_at = now();
             $contact->save();
             $this->audit->record('owner.save', $contact, ['before' => $before, 'after' => $contact->only(array_keys($before))], self::text($input['reason'] ?? ''));
+            ArchiveColumns::syncContact((int) $actor->agency_id, (int) $contact->id);
 
             return $contact;
         });

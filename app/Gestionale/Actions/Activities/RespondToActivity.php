@@ -6,6 +6,7 @@ use App\Gestionale\Activities\ActivityAccess;
 use App\Gestionale\Activities\ActivityCatalog;
 use App\Gestionale\Activities\Notifier;
 use App\Gestionale\Audit;
+use App\Gestionale\Census\ArchiveColumns;
 use App\Gestionale\CommandRejected;
 use App\Gestionale\Commands;
 use App\Models\Activity;
@@ -90,6 +91,7 @@ final class RespondToActivity
                 Notifier::notify((int) $old->created_by_user_id, $response.' · attività assegnata', $old->id);
             }
             $this->audit->record('activity.respond', $old, ['response' => $response, 'before' => $previousStatus, 'after' => $old->status], $reason ?: null);
+            ArchiveColumns::syncOutcomes((int) $actor->agency_id, DB::table('activity_units')->where('activity_id', $old->id)->pluck('cadastral_unit_id')->map(fn ($id) => (int) $id)->all());
 
             return $old->refresh();
         });
