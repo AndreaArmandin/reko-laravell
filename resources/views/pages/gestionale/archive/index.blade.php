@@ -1,11 +1,10 @@
 <?php
 
 use App\Gestionale\Actions\Census\RemoveCensusUnits;
-use App\Gestionale\Actions\Census\AssociateCensusOwner;
 use App\Gestionale\Actions\Census\RemoveCensusOwnership;
+use App\Gestionale\Actions\Census\RecordCensusOutcome;
 use App\Gestionale\Actions\Census\SaveCensusProposal;
 use App\Gestionale\Actions\Census\SaveCadastral;
-use App\Gestionale\Actions\Census\SaveLocation;
 use App\Gestionale\Actions\Census\SaveOwner;
 use App\Gestionale\Actions\Census\SaveOwnerContact;
 use App\Gestionale\Activities\ActivityAccess;
@@ -13,7 +12,9 @@ use App\Gestionale\Activities\ActivityContext;
 use App\Gestionale\Census\CensusQuery;
 use App\Gestionale\Census\CensusReader;
 use App\Gestionale\Census\CensusScope;
+use App\Gestionale\Census\TerrainParcelReader;
 use App\Gestionale\Census\CensusImporter;
+use App\Gestionale\Census\SisterText;
 use App\Gestionale\CommandRejected;
 use App\Gestionale\CurrentAgency;
 use App\Models\AgencyMembership;
@@ -26,6 +27,7 @@ use Illuminate\Support\Facades\DB;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\Title;
+use Livewire\Attributes\Url;
 use Livewire\Component;
 
 /*
@@ -49,6 +51,10 @@ new #[Layout('layouts::gestionale'), Title('Archivio catastale')] class extends 
     public string $parcel = '';
     public string $sub = '';
     public bool $withoutSub = false;
+    /** Collegamento diretto (?parcel=, ?unit=, ?owner=): mostra solo quella particella, unità o proprietario. */
+    public ?int $focusParcelId = null;
+    public ?int $focusUnitId = null;
+    public ?int $focusOwnerId = null;
     public string $locality = '';
     public string $address = '';
     public string $civic = '';
@@ -67,6 +73,7 @@ new #[Layout('layouts::gestionale'), Title('Archivio catastale')] class extends 
     public string $notice = '';
     public ?int $openOwnerId = null;
     public int $ownerUnitsPage = 1;
+    public ?int $historyOwnerId = null;
     public ?int $historyUnitId = null;
     public string $historyOutcomeFilter = '';
     public string $historyTypeFilter = '';
@@ -85,28 +92,24 @@ new #[Layout('layouts::gestionale'), Title('Archivio catastale')] class extends 
     public string $proposalPid = '';
     public string $proposalNote = '';
     public bool $proposalNewOwner = false;
-    public ?int $locationUnitId = null;
-    public bool $locationEditorOpen = false;
-    public string $locationStreet = '';
-    public string $locationCivic = '';
-    public string $locationLocality = '';
-    public string $locationReason = '';
-    public ?int $associateUnitId = null;
-    public bool $associationOpen = false;
-    public string $ownerSearch = '';
-    public ?int $selectedOwnerId = null;
-    public string $associationRight = '';
-    public string $associationFraction = '';
-    public string $associationSource = '';
-    public string $associationDate = '';
-    public string $associationNote = '';
+
+    // census.update: riscontro del contatto con il proprietario (census-controls.tsx)
+    public bool $outcomeOpen = false;
+    public ?int $outcomeUnitId = null;
+    public ?int $outcomeOwnerId = null;
+    public string $outcomeOperation = '';
+    public string $outcomeValue = '';
+    public string $outcomeNote = '';
+    public ?int $outcomeExistingId = null;
+    public bool $outcomeConfirmNew = false;
+    public bool $outcomeSchedule = false;
+    public string $outcomeNextAt = '';
+    public string $outcomeNextReason = '';
+    public string $outcomeToken = '';
     public bool $censusRemovalOpen = false;
     public string $censusRemovalMode = '';
-    public ?int $censusRemovalUnitId = null;
     public ?int $censusRemovalOwnerId = null;
     public string $censusRemovalReason = '';
-    public string $censusRemovalDate = '';
-    public bool $censusRemovalCorrection = false;
     public bool $censusRemovalConfirmed = false;
     public ?int $editingOwnerId = null;
     public bool $ownerEditorOpen = false;
@@ -116,7 +119,8 @@ new #[Layout('layouts::gestionale'), Title('Archivio catastale')] class extends 
     public string $ownerEditLastName = '';
     public string $ownerEditCompanyName = '';
     public string $ownerEditNotes = '';
-    public string $ownerEditTags = '';
+    /** @var list<string> */
+    public array $ownerEditTags = [];
     public string $ownerEditReason = '';
     public ?string $ownerEditRevision = null;
     public ?int $cadastralUnitId = null;
@@ -151,6 +155,13 @@ new #[Layout('layouts::gestionale'), Title('Archivio catastale')] class extends 
     public bool $sisterSkipInvalid = false;
     public string $sisterToken = '';
     public string $sisterError = '';
+    /** Unità prefissata dalla scheda (immobile collegato) oppure scelta dall'elenco «Unità a cui collegare i proprietari». */
+    public bool $sisterTargetLocked = false;
+    public string $sisterTargetQuery = '';
+    public bool $sisterPickerOpen = false;
+    public int $sisterOptionIndex = 0;
+    /** @var list<int> unità con i comproprietari espansi («Mostra altri N») */
+    public array $expandedUnits = [];
 
     public function mount(Request $request): void
     {
@@ -165,19 +176,72 @@ new #[Layout('layouts::gestionale'), Title('Archivio catastale')] class extends 
             $this->municipalityCode = $requestedCode;
             $this->municipalitySearch = $requestedMunicipality['name'];
         }
+        $this->openFocus(
+            $this->positiveInt($request->query('parcel')),
+            $this->positiveInt($request->query('unit')),
+            $this->positiveInt($request->query('owner')),
+        );
         if ($request->boolean('importSister') && $this->membership->allows('sister.import')) {
             $this->openSisterImport();
         }
     }
 
+    private function positiveInt(mixed $value): ?int
+    {
+        return is_numeric($value) && (int) $value > 0 ? (int) $value : null;
+    }
+
+    /**
+     * scouting-area.tsx: an id in the link selects one parcel, one unit of it or one owner, whatever the
+     * municipality. Only what the role can reach is shown: an unreachable id is ignored.
+     */
+    private function openFocus(?int $parcelId, ?int $unitId, ?int $ownerId): void
+    {
+        if ($parcelId === null && $unitId === null && $ownerId === null) {
+            return;
+        }
+        $entry = (new CensusReader($this->membership))->entries(array_filter(['parcelId' => $parcelId, 'unitId' => $unitId, 'ownerId' => $ownerId]))->first();
+        $terrain = $entry === null && $parcelId !== null && CensusScope::parcelVisible($this->membership, $parcelId)
+            ? (TerrainParcelReader::archiveRows($this->membership, null, $parcelId)[0] ?? null) : null;
+        if ($entry === null && $terrain === null) {
+            return;
+        }
+        $this->focusParcelId = $parcelId;
+        $this->focusUnitId = $unitId;
+        $this->focusOwnerId = $ownerId;
+        $this->view = $ownerId !== null ? 'Proprietari' : 'Immobili';
+        $code = (string) ($entry['context']['code'] ?? $terrain['context']['code'] ?? '');
+        $municipality = collect($this->municipalities)->firstWhere('code', $code);
+        if ($municipality !== null) {
+            $this->municipalityCode = $code;
+            $this->municipalitySearch = $municipality['name'];
+        }
+    }
+
+    private function hasFocus(): bool
+    {
+        return $this->focusParcelId !== null || $this->focusUnitId !== null || $this->focusOwnerId !== null;
+    }
+
+    /** “Torna all’elenco completo”. */
+    public function clearFocus(): void
+    {
+        $this->focusParcelId = $this->focusUnitId = $this->focusOwnerId = null;
+        $this->page = 1;
+        $this->ownerUnitsPage = 1;
+        unset($this->results, $this->ownerUnits);
+    }
+
+
     public function openSisterImport(?int $targetUnitId = null): void
     {
-        abort_unless($this->membership->allows('sister.import'), 403);
+        abort_unless($this->membership->allows('sister.import') || ($targetUnitId !== null && CensusImporter::scoutMayReplaceOwners($this->membership, $targetUnitId)), 403);
         $this->resetSisterImport();
         if ($targetUnitId !== null) {
             abort_unless(CensusScope::unitVisible($this->membership, $targetUnitId), 403);
             $entry = (new CensusReader($this->membership))->entries(['unitId' => $targetUnitId])->first() ?? abort(404);
             $this->sisterTargetUnitId = (string) $targetUnitId;
+            $this->sisterTargetLocked = true;
             $this->sisterProvince = $entry['context']['province'];
             $this->sisterMunicipality = $entry['context']['municipality'];
             $this->sisterCode = $entry['context']['code'];
@@ -207,9 +271,16 @@ new #[Layout('layouts::gestionale'), Title('Archivio catastale')] class extends 
         $this->sisterOwnerFile = null;
     }
 
+    /** Permesso “Importa da Sister”, oppure scout sull'unità di una particella assegnata (census.owners.replace). */
+    private function canSisterImport(): bool
+    {
+        return $this->membership->allows('sister.import')
+            || ($this->sisterTargetUnitId !== '' && CensusImporter::scoutMayReplaceOwners($this->membership, (int) $this->sisterTargetUnitId));
+    }
+
     public function openImportedSisterResults(): void
     {
-        abort_unless($this->membership->allows('sister.import'), 403);
+        abort_unless($this->canSisterImport(), 403);
         if (! $this->sisterResult) {
             return;
         }
@@ -249,18 +320,93 @@ new #[Layout('layouts::gestionale'), Title('Archivio catastale')] class extends 
 
     public function updatedSisterEstatesText(): void { $this->invalidateSisterPreview(); }
     public function updatedSisterOwnersText(): void { $this->invalidateSisterPreview(); }
-    public function updatedSisterProvince(): void { $this->invalidateSisterPreview(); }
-    public function updatedSisterMunicipality(): void { $this->invalidateSisterPreview(); }
-    public function updatedSisterCode(): void { $this->invalidateSisterPreview(); unset($this->sisterTargetUnits); }
+    public function updatedSisterMunicipality(): void
+    {
+        // Come nell'originale: digitando si scarta il Comune scelto; provincia e codice seguono solo la selezione.
+        $this->invalidateSisterPreview();
+        if ($this->sisterCode !== '') {
+            $this->sisterProvince = $this->sisterCode = '';
+        }
+        if (! $this->sisterTargetLocked) {
+            $this->sisterTargetUnitId = '';
+        }
+        $this->sisterPickerOpen = true;
+        $this->sisterOptionIndex = 0;
+        unset($this->sisterMunicipalityOptions, $this->sisterTargetUnits);
+    }
+
+    /** Caricato il file, il testo entra subito nel campo (come l'originale, che lo legge al cambio del file). */
+    public function updatedSisterEstateFile(): void { $this->loadSisterTextFile('estates'); }
+    public function updatedSisterOwnerFile(): void { $this->loadSisterTextFile('owners'); }
+
+    /** @return list<array{name:string,province:string,code:string}> Comuni italiani (MunicipalityAutocomplete senza elenco proprio). */
+    #[Computed]
+    public function sisterMunicipalityOptions(): array
+    {
+        abort_unless($this->canSisterImport(), 403);
+        $term = $this->normalizeMunicipalitySearch($this->sisterMunicipality);
+        $query = Municipality::query()->with('province')->whereNotNull('cadastral_code');
+        if ($term !== '') {
+            $query->where(fn ($q) => $q->whereRaw("translate(lower(name), 'àáâèéêìíîòóôùúû', 'aaaeeeiiiooouuu') like ?", ['%'.str_replace(['%', '_'], '', $term).'%'])
+                ->orWhere('cadastral_code', strtoupper(trim($this->sisterMunicipality))));
+        }
+
+        return $query->orderBy('name')->limit(20)->get()
+            ->map(fn (Municipality $m) => ['name' => $m->name, 'province' => (string) ($m->province?->abbreviation ?? ''), 'code' => $m->cadastral_code])->all();
+    }
+
+    public function selectSisterMunicipality(string $code): void
+    {
+        abort_unless($this->canSisterImport(), 403);
+        $municipality = collect($this->sisterMunicipalityOptions)->firstWhere('code', strtoupper(trim($code)));
+        abort_unless($municipality !== null, 422);
+        $this->invalidateSisterPreview();
+        $this->sisterMunicipality = $municipality['name'];
+        $this->sisterProvince = $municipality['province'];
+        $this->sisterCode = $municipality['code'];
+        $this->sisterTargetUnitId = '';
+        $this->sisterPickerOpen = false;
+        $this->sisterOptionIndex = 0;
+        unset($this->sisterTargetUnits);
+    }
+
+    public function moveSisterOption(int $direction): void
+    {
+        $count = count($this->sisterMunicipalityOptions);
+        $this->sisterPickerOpen = $count > 0 || $this->sisterPickerOpen;
+        $this->sisterOptionIndex = $count === 0 ? 0 : max(0, min($count - 1, $this->sisterOptionIndex + ($direction < 0 ? -1 : 1)));
+    }
+
+    public function chooseSisterOption(): void
+    {
+        $municipality = $this->sisterMunicipalityOptions[$this->sisterOptionIndex] ?? null;
+        if ($municipality !== null) {
+            $this->selectSisterMunicipality($municipality['code']);
+        }
+    }
+
+    public function closeSisterPicker(): void
+    {
+        $this->sisterPickerOpen = false;
+    }
+
+    /** «Unità a cui collegare i proprietari»: scelta (o «Cambia unità» con stringa vuota) dall'elenco del Comune. */
+    public function chooseSisterTarget(string $unitId): void
+    {
+        abort_unless($this->canSisterImport() && ! $this->sisterTargetLocked, 403);
+        abort_unless($unitId === '' || collect($this->sisterTargetUnits)->contains('id', (int) $unitId), 422);
+        $this->invalidateSisterPreview();
+        $this->sisterTargetUnitId = $unitId;
+        $this->sisterTargetQuery = '';
+    }
     public function updatedSisterKind(): void { $this->invalidateSisterPreview(); }
     public function updatedSisterSection(): void { $this->invalidateSisterPreview(); }
     public function updatedSisterSituationDate(): void { $this->invalidateSisterPreview(); }
-    public function updatedSisterTargetUnitId(): void { $this->invalidateSisterPreview(); }
 
     #[Computed]
     public function sisterTargetUnits(): array
     {
-        abort_unless($this->membership->allows('sister.import'), 403);
+        abort_unless($this->canSisterImport(), 403);
         if ($this->sisterCode === '') {
             return [];
         }
@@ -272,13 +418,42 @@ new #[Layout('layouts::gestionale'), Title('Archivio catastale')] class extends 
             ->orderBy('p.sheet')->orderBy('p.number')->orderBy('cu.subalterno')->limit(300)->get()
             ->map(fn ($unit) => [
                 'id' => (int) $unit->cadastral_unit_id,
-                'label' => $unit->municipality.' · F. '.$unit->sheet.' · P. '.$unit->number.' · Sub. '.($unit->subalterno ?: '—').($unit->address ? ' · '.$unit->address : ''),
+                'label' => $unit->municipality.' · F.'.$unit->sheet.' · P.'.$unit->number.' · Sub.'.($unit->subalterno ?: '—').($unit->address ? ' · '.$unit->address : ''),
             ])->all();
+    }
+
+    /** Unità del Comune che contengono tutte le parole cercate (census-import.tsx: matches, al massimo 30). @return list<array{id:int,label:string}> */
+    #[Computed]
+    public function sisterTargetMatches(): array
+    {
+        $terms = array_filter(preg_split('/[\s·,]+/u', mb_strtolower(trim($this->sisterTargetQuery), 'UTF-8')) ?: []);
+
+        return array_slice(array_values(array_filter($this->sisterTargetUnits, function (array $unit) use ($terms): bool {
+            $label = mb_strtolower($unit['label'], 'UTF-8');
+
+            return collect($terms)->every(fn ($term) => str_contains($label, $term));
+        })), 0, 30);
+    }
+
+    /** Etichetta dell'unità collegata (prefissata o scelta), anche se fuori dal primo elenco. */
+    #[Computed]
+    public function sisterTargetLabel(): string
+    {
+        if ($this->sisterTargetUnitId === '') {
+            return '';
+        }
+        $entry = $this->canSisterImport() ? (new CensusReader($this->membership))->entries(['unitId' => (int) $this->sisterTargetUnitId])->first() : null;
+        if ($entry === null) {
+            return '';
+        }
+
+        return $entry['context']['municipality'].' · F.'.$entry['context']['sheet'].' · P.'.$entry['context']['parcel'].' · Sub.'.($entry['unit']['sub'] ?: '—')
+            .' · '.($entry['unit']['address'] ?: $entry['parcelAddress']);
     }
 
     public function loadSisterTextFile(string $field): void
     {
-        abort_unless($this->membership->allows('sister.import'), 403);
+        abort_unless($this->canSisterImport(), 403);
         $property = match ($field) {
             'estates' => 'sisterEstateFile',
             'owners' => 'sisterOwnerFile',
@@ -315,13 +490,33 @@ new #[Layout('layouts::gestionale'), Title('Archivio catastale')] class extends 
         $this->invalidateSisterPreview();
     }
 
+    /** Un solo pulsante, come l'originale: la prima volta controlla il testo, la seconda conferma e salva. */
+    public function submitSisterImport(): void
+    {
+        $this->sisterPreview === null ? $this->previewSisterImport() : $this->applySisterImport();
+    }
+
     public function previewSisterImport(): void
     {
         $membership = $this->membership;
-        abort_unless($membership->allows('sister.import'), 403);
+        abort_unless($this->canSisterImport(), 403);
         $sourceText = trim($this->sisterEstatesText."\n".$this->sisterOwnersText);
         if (mb_strlen($sourceText) > 500_000) {
             $this->sisterError = 'Dividi il testo in blocchi entro 500.000 caratteri.';
+
+            return;
+        }
+        // census-import.tsx submit(): controlli sui campi prima dell'anteprima.
+        $misplaced = fn (string $row) => trim($row) !== '' && ! preg_match('/^(?:Situazione|Sezione)\b/iu', trim($row));
+        $error = match (true) {
+            $sourceText === '' => 'Incolla il testo da SISTER.',
+            $this->sisterTargetLocked && trim($this->sisterOwnersText) === '' => 'Incolla gli intestatari nel campo Testo proprietari.',
+            SisterText::split($this->sisterEstatesText)['owners'] !== '' => 'Nel campo Testo immobili ci sono intestatari: spostali nel campo Testo proprietari.',
+            collect(preg_split('/\r\n|\n|\r/', SisterText::split($this->sisterOwnersText)['estates']))->contains($misplaced) => 'Nel campo Testo proprietari ci sono immobili: spostali nel campo Testo immobili.',
+            default => '',
+        };
+        if ($error !== '') {
+            $this->sisterError = $error;
 
             return;
         }
@@ -344,7 +539,7 @@ new #[Layout('layouts::gestionale'), Title('Archivio catastale')] class extends 
     public function applySisterImport(): void
     {
         $membership = $this->membership;
-        abort_unless($membership->allows('sister.import'), 403);
+        abort_unless($this->canSisterImport(), 403);
         if (! $this->sisterPreview || $this->sisterError !== '') {
             $this->sisterError = 'Controlla il testo e genera un’anteprima valida prima di salvare.';
 
@@ -407,9 +602,10 @@ new #[Layout('layouts::gestionale'), Title('Archivio catastale')] class extends 
     {
         $this->reset('sisterEstatesText', 'sisterOwnersText', 'sisterProvince', 'sisterMunicipality', 'sisterCode', 'sisterKind',
             'sisterSection', 'sisterSituationDate', 'sisterTargetUnitId', 'sisterEstateFile', 'sisterOwnerFile', 'sisterPreview',
-            'sisterResult', 'sisterOwnerDecisions', 'sisterConfirmNameUpdates', 'sisterSkipInvalid', 'sisterToken', 'sisterError');
+            'sisterResult', 'sisterOwnerDecisions', 'sisterConfirmNameUpdates', 'sisterSkipInvalid', 'sisterToken', 'sisterError',
+            'sisterTargetLocked', 'sisterTargetQuery', 'sisterPickerOpen', 'sisterOptionIndex');
         $this->sisterKind = 'Fabbricati';
-        unset($this->sisterTargetUnits);
+        unset($this->sisterTargetUnits, $this->sisterMunicipalityOptions);
     }
 
     private function guard(): AgencyMembership
@@ -442,7 +638,7 @@ new #[Layout('layouts::gestionale'), Title('Archivio catastale')] class extends 
     #[Computed]
     public function archiveReady(): bool
     {
-        return $this->municipalityCode !== '' && ($this->mode !== 'catastale'
+        return $this->hasFocus() || $this->municipalityCode !== '' && ($this->mode !== 'catastale'
             || trim($this->search) !== ''
             || (trim($this->sheet) !== '' && trim($this->parcel) !== '' && (trim($this->sub) !== '' || $this->withoutSub)));
     }
@@ -517,7 +713,7 @@ new #[Layout('layouts::gestionale'), Title('Archivio catastale')] class extends 
     public function results(): array
     {
         $empty = ['page' => $this->page, 'size' => 20, 'total' => 0, 'items' => [], 'people' => [], 'options' => ['outcome' => ['Nessun esito']]];
-        if (! $this->archiveReady || ! in_array($this->municipalityCode, array_column($this->municipalities, 'code'), true)) {
+        if (! $this->archiveReady || (! $this->hasFocus() && ! in_array($this->municipalityCode, array_column($this->municipalities, 'code'), true))) {
             return $empty;
         }
 
@@ -525,9 +721,10 @@ new #[Layout('layouts::gestionale'), Title('Archivio catastale')] class extends 
 
         return (new CensusQuery($this->membership))->run([
             'view' => $this->view, 'search' => mb_substr($this->search, 0, 300), 'filters' => $filters,
+            'parcelId' => $this->focusParcelId, 'unitId' => $this->focusUnitId, 'ownerId' => $this->focusOwnerId,
             'page' => max(1, $this->page), 'size' => 20,
             'order' => in_array($this->order, ['Da contattare', 'Ultima attività', 'Esito'], true) ? $this->order : 'Da contattare',
-            'firstOutcome' => in_array($this->firstOutcome, CensusQuery::outcomes(), true) ? $this->firstOutcome : 'Interessato',
+            'firstOutcome' => in_array($this->firstOutcome, ['Nessun esito', ...CensusQuery::outcomes()], true) ? $this->firstOutcome : 'Interessato',
         ]);
     }
 
@@ -542,10 +739,22 @@ new #[Layout('layouts::gestionale'), Title('Archivio catastale')] class extends 
         return (new CensusReader($this->membership))->ownerEntriesPage($this->openOwnerId, $this->ownerUnitsPage, 10);
     }
 
+    /** @return array{holdings:list<array<string,mixed>>,contacts:list<array<string,mixed>>,outcomes:list<array<string,mixed>>}|null */
+    #[Computed]
+    public function ownerHistory(): ?array
+    {
+        if ($this->historyOwnerId === null || ! CensusScope::ownerVisible($this->membership, $this->historyOwnerId)) {
+            return null;
+        }
+
+        return (new CensusReader($this->membership))->ownerHistory($this->historyOwnerId);
+    }
+
     /** @return array<string,list<string>> */
     private function currentFilters(): array
     {
-        $filters = ['municipalityCode' => [$this->municipalityCode], '_mode' => [$this->mode]];
+        // Con un collegamento diretto vale solo l'id, qualunque sia il Comune (come l'originale).
+        $filters = ($this->hasFocus() ? [] : ['municipalityCode' => [$this->municipalityCode]]) + ['_mode' => [$this->mode]];
         $modeFields = match ($this->mode) {
             'catastale' => ['sheet' => $this->sheet, 'parcel' => $this->parcel, 'sub' => $this->sub],
             'frazione' => ['locality' => $this->locality],
@@ -554,6 +763,9 @@ new #[Layout('layouts::gestionale'), Title('Archivio catastale')] class extends 
             default => [],
         };
         foreach ($modeFields as $key => $value) {
+            if ($key === 'sub' && $this->withoutSub) {
+                continue;
+            }
             if (trim($value) !== '') {
                 $filters[$key] = [trim($value)];
             }
@@ -598,7 +810,13 @@ new #[Layout('layouts::gestionale'), Title('Archivio catastale')] class extends 
     public function updatedSheet(): void { $this->resetResults(); }
     public function updatedParcel(): void { $this->resetResults(); }
     public function updatedSub(): void { $this->resetResults(); }
-    public function updatedWithoutSub(): void { $this->resetResults(); }
+    public function updatedWithoutSub(): void
+    {
+        if ($this->withoutSub) {
+            $this->sub = '';
+        }
+        $this->resetResults();
+    }
     public function updatedLocality(): void { $this->resetResults(); }
     public function updatedAddress(): void { $this->resetResults(); }
     public function updatedCivic(): void { $this->resetResults(); }
@@ -684,12 +902,33 @@ new #[Layout('layouts::gestionale'), Title('Archivio catastale')] class extends 
         $this->dispatch('crm-notice', type: 'success', text: $this->notice);
     }
 
+    /** «Mostra altri N» / «Mostra meno» oltre i due comproprietari. */
+    public function toggleCoowners(int $unitId): void
+    {
+        $this->expandedUnits = in_array($unitId, $this->expandedUnits, true)
+            ? array_values(array_diff($this->expandedUnits, [$unitId]))
+            : [...$this->expandedUnits, $unitId];
+    }
+
     public function showOwnerProperties(int $ownerId): void
     {
         abort_unless(CensusScope::ownerVisible($this->membership, $ownerId), 403);
         $this->openOwnerId = $this->openOwnerId === $ownerId ? null : $ownerId;
         $this->ownerUnitsPage = 1;
         unset($this->ownerUnits);
+    }
+
+    public function openOwnerHistory(int $ownerId): void
+    {
+        abort_unless(CensusScope::ownerVisible($this->membership, $ownerId), 403);
+        $this->historyOwnerId = $ownerId;
+        unset($this->ownerHistory);
+    }
+
+    public function closeOwnerHistory(): void
+    {
+        $this->historyOwnerId = null;
+        unset($this->ownerHistory);
     }
 
     public function setOwnerUnitsPage(int $page): void
@@ -789,7 +1028,7 @@ new #[Layout('layouts::gestionale'), Title('Archivio catastale')] class extends 
         $this->contactId = null;
         $this->contactContextUnitId = null;
         $this->notice = 'Recapito aggiornato in tutte le unità del proprietario';
-        unset($this->results, $this->ownerUnits);
+        unset($this->results, $this->ownerUnits, $this->editingOwnerContact);
         $this->dispatch('crm-notice', type: 'success', text: $this->notice);
     }
 
@@ -830,6 +1069,70 @@ new #[Layout('layouts::gestionale'), Title('Archivio catastale')] class extends 
         $this->proposalNote = '';
     }
 
+    public function openOutcome(int $unitId, ?int $ownerId = null): void
+    {
+        abort_if($this->membership->role === 'crm', 403);
+        abort_unless(CensusScope::unitVisible($this->membership, $unitId), 403);
+        $this->reset('outcomeOperation', 'outcomeValue', 'outcomeNote', 'outcomeExistingId', 'outcomeConfirmNew', 'outcomeSchedule', 'outcomeNextAt', 'outcomeNextReason');
+        $this->outcomeUnitId = $unitId;
+        $this->outcomeOwnerId = $ownerId;
+        $this->outcomeToken = (string) \Illuminate\Support\Str::uuid();
+        $this->notice = '';
+        $this->outcomeOpen = true;
+    }
+
+    public function closeOutcome(): void
+    {
+        $this->outcomeOpen = false;
+        $this->outcomeUnitId = null;
+        $this->outcomeOwnerId = null;
+    }
+
+    /** Proprietari attuali dell'unità e attività da completare oggi (per non duplicare il contatto). */
+    #[Computed]
+    public function outcomeContext(): array
+    {
+        if (! $this->outcomeOpen || $this->outcomeUnitId === null) {
+            return ['owners' => [], 'pending' => []];
+        }
+        $owners = \App\Models\Ownership::query()->where('agency_id', $this->membership->agency_id)->where('cadastral_unit_id', $this->outcomeUnitId)
+            ->whereNull('valid_to')->with('contact')->get()->filter(fn ($o) => $o->contact && ! $o->contact->isRemoved() && CensusScope::ownerVisible($this->membership, (int) $o->contact_id))
+            ->map(fn ($o) => ['id' => (int) $o->contact_id, 'name' => $o->contact->display_name])->unique('id')->values()->all();
+        $pending = [];
+        if ($this->outcomeOwnerId) {
+            $parcelId = (int) \Illuminate\Support\Facades\DB::table('cadastral_units')->where('id', $this->outcomeUnitId)->value('parcel_id');
+            $pending = RecordCensusOutcome::pendingToday($this->membership, $this->outcomeOwnerId, $parcelId, $this->outcomeUnitId)
+                ->map(fn ($a) => ['id' => $a->id, 'label' => $a->kind.' · '.$a->subject, 'selectable' => in_array($a->kind, ['Telefonata', 'Prossima attività'], true)])->all();
+        }
+
+        return ['owners' => $owners, 'pending' => $pending];
+    }
+
+    public function submitOutcome(): void
+    {
+        if (! $this->outcomeOwnerId || $this->outcomeOperation === '' || $this->outcomeValue === '') {
+            $this->notice = 'Scegli il proprietario, vendita o affitto e un esito.';
+
+            return;
+        }
+        try {
+            app(RecordCensusOutcome::class)->handle($this->membership, (int) $this->outcomeUnitId, [
+                'owner_id' => $this->outcomeOwnerId, 'type' => 'Chiamata', 'contact_operation' => $this->outcomeOperation,
+                'outcome' => $this->outcomeValue, 'notes' => $this->outcomeNote, 'existing_activity_id' => $this->outcomeExistingId,
+                'confirm_new' => $this->outcomeConfirmNew, 'token' => $this->outcomeToken,
+                'next_type' => $this->outcomeSchedule ? 'Prossima attività' : 'Nessuno', 'next_at' => $this->outcomeNextAt, 'next_reason' => $this->outcomeNextReason,
+            ]);
+        } catch (CommandRejected $e) {
+            $this->notice = $e->getMessage();
+
+            return;
+        }
+        $this->closeOutcome();
+        $this->notice = 'Riscontro di contatto registrato.';
+        unset($this->results);
+        $this->dispatch('crm-notice', type: 'success', text: $this->notice);
+    }
+
     public function submitProposal(): void
     {
         try {
@@ -849,154 +1152,38 @@ new #[Layout('layouts::gestionale'), Title('Archivio catastale')] class extends 
         $this->dispatch('crm-notice', type: 'success', text: $this->notice);
     }
 
-    public function openLocationEditor(int $unitId): void
-    {
-        abort_unless($this->membership->role === 'admin' && CensusScope::unitVisible($this->membership, $unitId), 403);
-        $entry = (new CensusReader($this->membership))->entries(['unitId' => $unitId])->first() ?? abort(404);
-        $this->locationUnitId = $unitId;
-        $this->locationStreet = $entry['street'];
-        $this->locationCivic = $entry['civic'];
-        $this->locationLocality = $entry['locality'];
-        $this->locationReason = '';
-        $this->notice = '';
-        $this->locationEditorOpen = true;
-    }
-
-    public function saveLocation(): void
-    {
-        abort_unless($this->membership->role === 'admin', 403);
-        if ($this->locationUnitId === null) {
-            abort(404);
-        }
-        try {
-            app(SaveLocation::class)->handle($this->membership, $this->locationUnitId, [
-                'street' => $this->locationStreet,
-                'civic' => $this->locationCivic,
-                'locality' => $this->locationLocality,
-                'reason' => $this->locationReason,
-            ]);
-        } catch (CommandRejected $e) {
-            $this->notice = $e->getMessage();
-
-            return;
-        }
-        $this->locationEditorOpen = false;
-        $this->locationUnitId = null;
-        $this->notice = 'Indirizzo aggiornato; testo originale conservato.';
-        unset($this->results);
-        $this->dispatch('crm-notice', type: 'success', text: $this->notice);
-    }
-
-    public function closeLocationEditor(): void
-    {
-        $this->locationEditorOpen = false;
-        $this->locationUnitId = null;
-        $this->locationReason = '';
-    }
-
-    #[Computed]
-    public function ownerOptions(): array
-    {
-        if (mb_strlen(trim($this->ownerSearch)) < 2) {
-            return [];
-        }
-        $term = trim($this->ownerSearch);
-        $owners = Contact::query()->where('agency_id', $this->membership->agency_id)->whereNull('removed_at')
-            ->where(fn ($q) => $q->where('display_name', 'ilike', '%'.$term.'%')->orWhere('tax_code', 'ilike', '%'.$term.'%')->orWhere('vat_number', 'ilike', '%'.$term.'%')->orWhere('recapito', 'ilike', '%'.$term.'%'))
-            ->orderBy('display_name')->limit(40)->get(['id', 'display_name', 'tax_code', 'vat_number']);
-
-        return $owners->filter(fn (Contact $owner) => CensusScope::ownerVisible($this->membership, (int) $owner->id))
-            ->take(15)->map(fn (Contact $owner) => ['id' => (int) $owner->id, 'name' => $owner->display_name, 'pid' => $owner->tax_code ?: $owner->vat_number])->values()->all();
-    }
-
-    public function updatedOwnerSearch(): void { unset($this->ownerOptions); $this->selectedOwnerId = null; }
-
-    public function openAssociation(int $unitId): void
-    {
-        abort_unless(CensusScope::unitVisible($this->membership, $unitId), 403);
-        $this->associateUnitId = $unitId;
-        $this->ownerSearch = '';
-        $this->selectedOwnerId = null;
-        $this->associationRight = '';
-        $this->associationFraction = '';
-        $this->associationSource = '';
-        $this->associationDate = '';
-        $this->associationNote = '';
-        $this->associationOpen = true;
-    }
-
-    public function closeAssociation(): void
-    {
-        $this->associationOpen = false;
-        $this->associateUnitId = null;
-        $this->selectedOwnerId = null;
-        $this->ownerSearch = '';
-        unset($this->ownerOptions);
-    }
-
-    public function proposeNewOwner(): void
-    {
-        $unitId = $this->associateUnitId;
-        $this->closeAssociation();
-        $this->openProposal($unitId);
-        $this->proposalNewOwner = true;
-    }
-
-    public function associateOwner(): void
-    {
-        if ($this->associateUnitId === null || $this->selectedOwnerId === null) {
-            $this->notice = 'Seleziona un proprietario esistente.';
-
-            return;
-        }
-        try {
-            app(AssociateCensusOwner::class)->handle($this->membership, $this->associateUnitId, $this->selectedOwnerId, [
-                'right' => $this->associationRight, 'fraction' => $this->associationFraction, 'source' => $this->associationSource,
-                'effectiveDate' => $this->associationDate, 'note' => $this->associationNote,
-            ]);
-        } catch (CommandRejected $e) {
-            $this->notice = $e->getMessage();
-
-            return;
-        }
-        $this->closeAssociation();
-        $this->notice = 'Proprietario associato senza duplicati.';
-        unset($this->results, $this->ownerUnits);
-        $this->dispatch('crm-notice', type: 'success', text: $this->notice);
-    }
-
-    public function openUnlink(int $unitId, int $ownerId): void
-    {
-        abort_unless($this->membership->role === 'admin', 403);
-        abort_unless(CensusScope::unitVisible($this->membership, $unitId) && CensusScope::ownerVisible($this->membership, $ownerId), 403);
-        $this->censusRemovalMode = 'unlink';
-        $this->censusRemovalUnitId = $unitId;
-        $this->censusRemovalOwnerId = $ownerId;
-        $this->censusRemovalReason = '';
-        $this->censusRemovalDate = '';
-        $this->censusRemovalCorrection = false;
-        $this->censusRemovalConfirmed = false;
-        $this->censusRemovalOpen = true;
-    }
-
     public function openOwnerRemoval(int $ownerId): void
     {
         abort_unless($this->membership->role === 'admin' && CensusScope::ownerVisible($this->membership, $ownerId), 403);
         $this->censusRemovalMode = 'owner';
-        $this->censusRemovalUnitId = null;
         $this->censusRemovalOwnerId = $ownerId;
         $this->censusRemovalReason = '';
-        $this->censusRemovalDate = '';
-        $this->censusRemovalCorrection = false;
         $this->censusRemovalConfirmed = false;
         $this->censusRemovalOpen = true;
+    }
+
+    /** @return array{name:string,links:int,portfolio:int,activities:int} collegamenti riportati nella finestra «Elimina proprietario» */
+    #[Computed]
+    public function censusRemovalSummary(): array
+    {
+        if (! $this->censusRemovalOpen || $this->censusRemovalOwnerId === null) {
+            return ['name' => '', 'links' => 0, 'portfolio' => 0, 'activities' => 0];
+        }
+        $agency = $this->membership->agency_id;
+        $id = $this->censusRemovalOwnerId;
+
+        return [
+            'name' => (string) Contact::query()->where('agency_id', $agency)->whereKey($id)->value('display_name'),
+            'links' => \App\Models\Ownership::query()->where('agency_id', $agency)->where('contact_id', $id)->whereNull('valid_to')->distinct()->count('cadastral_unit_id'),
+            'portfolio' => DB::table('property_contacts')->where('agency_id', $agency)->where('contact_id', $id)->count(),
+            'activities' => Activity::query()->where('agency_id', $agency)->where('contact_id', $id)->count(),
+        ];
     }
 
     public function closeCensusRemoval(): void
     {
         $this->censusRemovalOpen = false;
         $this->censusRemovalMode = '';
-        $this->censusRemovalUnitId = null;
         $this->censusRemovalOwnerId = null;
         $this->censusRemovalReason = '';
     }
@@ -1009,20 +1196,13 @@ new #[Layout('layouts::gestionale'), Title('Archivio catastale')] class extends 
 
             return;
         }
-        $action = app(RemoveCensusOwnership::class);
         try {
-            if ($this->censusRemovalMode === 'unlink' && $this->censusRemovalUnitId !== null) {
-                $action->unlink($this->membership, $this->censusRemovalUnitId, $this->censusRemovalOwnerId, [
-                    'reason' => $this->censusRemovalReason, 'effectiveDate' => $this->censusRemovalDate,
-                    'correction' => $this->censusRemovalCorrection, 'confirmed' => $this->censusRemovalConfirmed,
-                ]);
-            } elseif ($this->censusRemovalMode === 'owner') {
-                $action->removeOwner($this->membership, $this->censusRemovalOwnerId, [
-                    'reason' => $this->censusRemovalReason, 'confirmed' => $this->censusRemovalConfirmed,
-                ]);
-            } else {
+            if ($this->censusRemovalMode !== 'owner') {
                 abort(422);
             }
+            app(RemoveCensusOwnership::class)->removeOwner($this->membership, $this->censusRemovalOwnerId, [
+                'reason' => $this->censusRemovalReason, 'confirmed' => $this->censusRemovalConfirmed,
+            ]);
         } catch (CommandRejected $e) {
             $this->notice = $e->getMessage();
 
@@ -1045,9 +1225,10 @@ new #[Layout('layouts::gestionale'), Title('Archivio catastale')] class extends 
         $this->ownerEditLastName = $owner->family_name ?: '';
         $this->ownerEditCompanyName = $owner->company_name ?: '';
         $this->ownerEditNotes = $owner->notes ?: '';
-        $this->ownerEditTags = implode(', ', $owner->tags ?? []);
+        $this->ownerEditTags = array_values($owner->tags ?? []);
         $this->ownerEditReason = '';
         $this->ownerEditRevision = $owner->updated_at?->toISOString();
+        $this->notice = '';
         $this->ownerEditorOpen = true;
     }
 
@@ -1062,7 +1243,7 @@ new #[Layout('layouts::gestionale'), Title('Archivio catastale')] class extends 
                 'name' => $this->ownerEditName, 'pid' => $this->ownerEditPid,
                 'firstName' => $this->ownerEditFirstName, 'lastName' => $this->ownerEditLastName,
                 'companyName' => $this->ownerEditCompanyName, 'notes' => $this->ownerEditNotes,
-                'tags' => array_values(array_filter(array_map('trim', explode(',', $this->ownerEditTags)))),
+                'tags' => $this->ownerEditTags,
                 'reason' => $this->ownerEditReason, 'expected_updated_at' => $this->ownerEditRevision,
             ]);
         } catch (CommandRejected $e) {
@@ -1072,9 +1253,27 @@ new #[Layout('layouts::gestionale'), Title('Archivio catastale')] class extends 
         }
         $this->ownerEditorOpen = false;
         $this->editingOwnerId = null;
-        $this->notice = 'Anagrafica proprietario aggiornata.';
+        $this->notice = 'Anagrafica aggiornata in tutte le unità collegate';
+        if ($this->sisterImportOpen) {
+            $this->invalidateSisterPreview();
+        }
         unset($this->results, $this->ownerUnits);
         $this->dispatch('crm-notice', type: 'success', text: $this->notice);
+    }
+
+    /** Recapito attuale del proprietario in modifica, mostrato con ContactEditor nella finestra dell'anagrafica. */
+    #[Computed]
+    public function editingOwnerContact(): string
+    {
+        if ($this->editingOwnerId === null) {
+            return '';
+        }
+        $owner = Contact::query()->where('agency_id', $this->membership->agency_id)->whereKey($this->editingOwnerId)->first();
+        if ($owner === null) {
+            return '';
+        }
+
+        return $owner->recapito ?? implode(' / ', DB::table('contact_channels')->where('contact_id', $owner->id)->where('kind', 'phone')->orderByDesc('is_primary')->orderBy('id')->pluck('value')->all());
     }
 
     public function closeOwnerEditor(): void
@@ -1082,6 +1281,9 @@ new #[Layout('layouts::gestionale'), Title('Archivio catastale')] class extends 
         $this->ownerEditorOpen = false;
         $this->editingOwnerId = null;
         $this->ownerEditReason = '';
+        if ($this->sisterImportOpen) {
+            $this->invalidateSisterPreview();
+        }
     }
 
     public function openCadastralEditor(int $unitId): void
@@ -1135,276 +1337,216 @@ new #[Layout('layouts::gestionale'), Title('Archivio catastale')] class extends 
     }
 }; ?>
 
-<div class="crm-archive-page">
+<div>
+    @php
+        // Con la finestra «Modifica anagrafica» aperta il recapito si modifica da lì, non anche dalla scheda sotto.
+        $cardContactId = $ownerEditorOpen ? null : $contactId;
+        // Richieste che mostrano lo stato «Caricamento archivio catastale…» (useCensusQuery: loading).
+        $loadingTargets = 'selectMunicipality,chooseMunicipalityOption,view,mode,search,outcome,sheet,parcel,sub,withoutSub,locality,address,civic,floor,firstName,lastName,taxCode,filterValues,order,firstOutcome,setPage,setOwnerUnitsPage,showOwnerProperties,resetFilters,clearFocus';
+    @endphp
     <div class="crm-page-head">
         <div>
             <p class="proto-eyebrow">REKO Gestionale</p>
             <h1>Archivio catastale</h1>
-            <p class="crm-muted">Schede del censimento dell’agenzia, con proprietari e riscontri collegati. Il Comune limita ogni ricerca e i risultati sono paginati.</p>
+            <p class="crm-muted">{{ $view === 'Proprietari' ? 'Intestatari e recapiti collegati alle unità censite.' : 'Unità catastali, intestazioni e storico. Dati separati dagli immobili commerciali.' }}</p>
         </div>
         <div class="crm-actions">
             @can('agency-permission', 'sister.import')
-                <button type="button" class="crm-btn" wire:click="openSisterImport"><x-gestionale.lucide name="upload" :size="16" />Importa da SISTER</button>
+                <button type="button" class="crm-btn" wire:click="openSisterImport"><x-gestionale.lucide name="upload" :size="16" />Importa da SISTER immobili e proprietari</button>
             @endcan
-            @can('agency-permission', 'exports')<a class="crm-btn secondary" href="{{ route('gestionale.archive.export.missing-phone') }}">Esporta CF / P.IVA senza telefono · CSV</a>@endcan
+            {{-- Call 07/10, punto 15: in “Immobili” serve l’importazione; l’esportazione dei codici resta nella vista Proprietari. --}}
+            @if ($view === 'Proprietari')@can('agency-permission', 'exports')<a class="crm-btn secondary" href="{{ route('gestionale.archive.export.missing-phone') }}">Esporta CF / P.IVA senza telefono · CSV</a>@endcan @endif
             <a class="crm-btn secondary" href="{{ route('gestionale.scouting.index') }}" wire:navigate><x-gestionale.lucide name="map" :size="16" />Apri mappa e zone</a>
         </div>
     </div>
 
     @if ($notice !== '')<p class="crm-form-error" role="status">{{ $notice }}</p>@endif
 
-    @if ($this->municipalities === [])
-        <section class="crm-panel">
-            <h2>Nessuna unità censita</h2>
-            <p>In questo database non risultano schede di censimento attive. Le sagome e le unità del catalogo si consultano in Mappa e zone; entrano nell’Archivio quando vengono aggiunte al censimento.</p>
-            <a class="crm-btn" href="{{ route('gestionale.scouting.index') }}" wire:navigate>Apri mappa e zone</a>
-        </section>
-    @else
-        <section class="crm-panel census-filters" aria-label="Filtri Archivio catastale">
-            <h2>Filtra l’Archivio</h2>
-            <div class="crm-form-grid census-primary-filters">
-                <label class="crm-field"><span>Comune</span>
-                    <span class="census-municipality-picker" x-data="{ open: @entangle('municipalityPickerOpen').live }" x-on:click.outside="open = false; $wire.closeMunicipalityPicker()">
-                        <input wire:model.live.debounce.250ms="municipalitySearch" type="search" role="combobox" aria-autocomplete="list" aria-haspopup="listbox" aria-controls="archive-municipality-options" aria-activedescendant="archive-municipality-option-{{ $municipalityOptionIndex }}" aria-expanded="{{ $municipalityPickerOpen ? 'true' : 'false' }}" autocomplete="off" placeholder="Es. Milano, Cuneo…" wire:focus="$set('municipalityPickerOpen', true)" wire:blur="closeMunicipalityPicker" wire:keydown.arrow-down.prevent="moveMunicipalityOption(1)" wire:keydown.arrow-up.prevent="moveMunicipalityOption(-1)" wire:keydown.enter.prevent="chooseMunicipalityOption" wire:keydown.escape="closeMunicipalityPicker">
-                        @if ($municipalityPickerOpen)
-                            <span class="census-municipality-options" id="archive-municipality-options" role="listbox" aria-label="Comuni presenti nell’archivio">
-                                @forelse ($this->municipalityOptions as $index => $municipality)
-                                    <button type="button" role="option" aria-selected="{{ $index === $municipalityOptionIndex ? 'true' : 'false' }}" id="archive-municipality-option-{{ $index }}" wire:click="selectMunicipality('{{ $municipality['code'] }}')" x-on:mousedown.prevent>
-                                        <span>{{ $municipality['name'] }}</span><small>{{ $municipality['province'] ?: 'Provincia non indicata' }} · {{ $municipality['code'] }}</small>
-                                    </button>
-                                @empty
-                                    <span role="status">{{ trim($municipalitySearch) === '' ? 'Nessun Comune con immobili presenti.' : 'Nessun Comune con questo nome.' }}</span>
-                                @endforelse
-                            </span>
-                        @endif
-                    </span>
+    @if ($focusParcelId !== null || $focusUnitId !== null || $focusOwnerId !== null)
+        <button type="button" class="crm-back" wire:click="clearFocus"><x-gestionale.lucide name="arrow-left" :size="16" />Torna all’elenco completo</button>
+    @endif
+
+    <nav class="crm-tabs" aria-label="Vista censimento">
+        @foreach (['Immobili', 'Proprietari'] as $tab)<button type="button" wire:click="$set('view', '{{ $tab }}')" @if ($view === $tab) aria-current="page" @endif>{{ $tab }}</button>@endforeach
+    </nav>
+
+    <section class="crm-panel census-filters" aria-label="Filtri Archivio catastale">
+        <h2>Filtra l’Archivio</h2>
+        <div class="crm-form-grid census-primary-filters">
+            @include('gestionale.archive.municipality-picker', ['id' => 'archive-municipality', 'model' => 'municipalitySearch', 'openProperty' => 'municipalityPickerOpen',
+                'options' => $this->municipalityOptions, 'activeIndex' => $municipalityOptionIndex, 'isOpen' => $municipalityPickerOpen,
+                'select' => 'selectMunicipality', 'move' => 'moveMunicipalityOption', 'choose' => 'chooseMunicipalityOption', 'close' => 'closeMunicipalityPicker',
+                'listLabel' => 'Comuni presenti in archivio', 'emptyText' => $this->municipalities === [] ? 'Nessun Comune con immobili presenti.' : 'Nessun Comune con questo nome.'])
+            @if ($municipalityCode !== '')
+                <label class="crm-field"><span>Ricerca libera</span><input type="search" wire:model.live.debounce.300ms="search" maxlength="300" placeholder="Es. Cenisio 13, Rossi oppure 262/73"></label>
+                <label class="crm-field"><span>Esito</span>
+                    <select wire:model.live="outcome"><option value="">Tutti</option>@foreach (array_unique(array_filter(['Nessun esito', ...\App\Gestionale\Census\CensusQuery::outcomes(), ...$this->results['options']['outcome'], $outcome])) as $value)<option value="{{ $value }}">{{ $value }}</option>@endforeach</select>
                 </label>
-                @if ($municipalityCode !== '')
-                    <label class="crm-field"><span>Ricerca libera</span><input type="search" wire:model.live.debounce.300ms="search" maxlength="300" placeholder="Es. Cenisio 13, Rossi oppure 262/73"></label>
-                    <label class="crm-field"><span>Esito</span>
-                        <select wire:model.live="outcome"><option value="">Tutti</option>@foreach (array_unique([...\App\Gestionale\Census\CensusQuery::outcomes(), ...$this->results['options']['outcome'], $outcome]) as $value)<option value="{{ $value }}">{{ $value }}</option>@endforeach</select>
-                    </label>
-                @endif
-            </div>
-            @if ($municipalityCode === '')
-                <p class="crm-info">Seleziona il Comune per aprire i filtri e le schede dell’archivio.</p>
-            @else
-                <nav class="crm-tabs" aria-label="Vista archivio">
-                    @foreach (['Immobili', 'Proprietari'] as $tab)<button type="button" wire:click="$set('view', '{{ $tab }}')" @if ($view === $tab) aria-current="page" @endif>{{ $tab }}</button>@endforeach
-                </nav>
-                <details class="crm-archive-advanced-filters">
-                    <summary>Filtri avanzati</summary>
-                    <div class="crm-tabs" aria-label="Cerca per">
-                        @foreach (['catastale' => 'Riferimenti catastali', 'frazione' => 'Frazione', 'indirizzo' => 'Indirizzo', 'proprietario' => 'Proprietario'] as $key => $label)
-                            <button type="button" wire:click="$set('mode', '{{ $key }}')" @if ($mode === $key) aria-current="page" @endif>{{ $label }}</button>
-                        @endforeach
-                    </div>
-            @if ($mode === 'catastale')
-                <div class="crm-form-grid crm-archive-mode-fields">
-                    <label class="crm-field"><span>Foglio</span><input wire:model.live.debounce.250ms="sheet" inputmode="numeric" required></label>
-                    <label class="crm-field"><span>Particella</span><input wire:model.live.debounce.250ms="parcel" required></label>
-                    @unless ($withoutSub)<label class="crm-field"><span>Subalterno</span><input wire:model.live.debounce.250ms="sub" required></label>@endunless
-                    <label class="crm-check"><input type="checkbox" wire:model.live="withoutSub">Senza subalterno nella fonte</label>
-                </div>
-                <p class="crm-muted">Per una ricerca precisa inserisci foglio, particella e subalterno, oppure indica che il subalterno è assente.</p>
-                <details><summary>Mostra dettagli aggiuntivi</summary><div class="crm-form-grid crm-archive-mode-fields"><label class="crm-field"><span>Categoria</span><input wire:model.live.debounce.250ms="filterValues.category" placeholder="Es. A/2"></label></div></details>
-            @elseif ($mode === 'frazione')
-                <div class="crm-form-grid crm-archive-mode-fields"><label class="crm-field"><span>Frazione</span><input wire:model.live.debounce.250ms="locality" placeholder="Es. San Rocco Castagnaretta"></label></div>
-            @elseif ($mode === 'indirizzo')
-                <div class="crm-form-grid crm-archive-mode-fields">
-                    <label class="crm-field"><span>Via</span><input wire:model.live.debounce.250ms="address" placeholder="Nome della via"></label>
-                    <label class="crm-field"><span>Civico</span><input wire:model.live.debounce.250ms="civic"></label>
-                    <label class="crm-field"><span>Piano</span><input wire:model.live.debounce.250ms="floor"></label>
-                </div>
-            @else
-                <div class="crm-form-grid crm-archive-mode-fields">
-                    <label class="crm-field"><span>Nome o ragione sociale</span><input wire:model.live.debounce.250ms="firstName"></label>
-                    <label class="crm-field"><span>Cognome</span><input wire:model.live.debounce.250ms="lastName"></label>
-                    <label class="crm-field"><span>Codice fiscale / P. IVA</span><input wire:model.live.debounce.250ms="taxCode"></label>
-                </div>
             @endif
-                </details>
+        </div>
+        @if ($municipalityCode === '')
+            <p class="crm-info">Seleziona il Comune per aprire i filtri e le schede dell’archivio.</p>
+        @else
+            <details class="census-advanced-filters"><summary>Filtri avanzati</summary>
+                <div class="crm-tabs" aria-label="Modalità di ricerca catastale">
+                    @foreach (['catastale' => 'Riferimenti catastali', 'frazione' => 'Frazione', 'indirizzo' => 'Indirizzo', 'proprietario' => 'Proprietario'] as $key => $label)
+                        <button type="button" wire:click="$set('mode', '{{ $key }}')" aria-pressed="{{ $mode === $key ? 'true' : 'false' }}">{{ $label }}</button>
+                    @endforeach
+                </div>
+                <div class="census-mode-fields">
+                    @if ($mode === 'catastale')
+                        <div class="crm-form-grid">
+                            <label class="crm-field"><span>Foglio</span><input wire:model.live.debounce.250ms="sheet" inputmode="numeric" required></label>
+                            <label class="crm-field"><span>Particella</span><input wire:model.live.debounce.250ms="parcel" required></label>
+                            @unless ($withoutSub)<label class="crm-field"><span>Subalterno</span><input wire:model.live.debounce.250ms="sub" required></label>@endunless
+                            <label class="crm-check"><input type="checkbox" wire:model.live="withoutSub">Senza subalterno nella fonte</label>
+                        </div>
+                        <p class="crm-muted">Per una ricerca precisa inserisci foglio, particella e subalterno, oppure indica che il subalterno è assente.</p>
+                        <details><summary>Mostra dettagli aggiuntivi</summary><div class="crm-form-grid"><label class="crm-field"><span>Categoria</span><input wire:model.live.debounce.250ms="filterValues.category"></label></div></details>
+                    @elseif ($mode === 'frazione')
+                        <label class="crm-field"><span>Frazione</span><input wire:model.live.debounce.250ms="locality" placeholder="Es. San Rocco Castagnaretta"></label>
+                        <p class="crm-muted">Cerca nelle frazioni compilate nella scheda. Non vengono dedotte dall’indirizzo SISTER.</p>
+                    @elseif ($mode === 'indirizzo')
+                        <div class="crm-form-grid">
+                            <label class="crm-field"><span>Via</span><input wire:model.live.debounce.250ms="address" placeholder="Es. Via Cenisio"></label>
+                            <label class="crm-field"><span>Civico</span><input wire:model.live.debounce.250ms="civic" placeholder="Es. 10/A"></label>
+                            <label class="crm-field"><span>Piano</span><input wire:model.live.debounce.250ms="floor" placeholder="Es. T, 2, S1"></label>
+                        </div>
+                    @else
+                        <div class="crm-form-grid">
+                            <label class="crm-field"><span>Nome o ragione sociale</span><input wire:model.live.debounce.250ms="firstName"></label>
+                            <label class="crm-field"><span>Cognome</span><input wire:model.live.debounce.250ms="lastName"></label>
+                            <label class="crm-field"><span>Codice fiscale / Partita IVA</span><input wire:model.live.debounce.250ms="taxCode"></label>
+                        </div>
+                        <p class="crm-muted">Per le anagrafiche non ancora separate, nome e cognome cercano nel nominativo completo. Il codice fiscale distingue gli omonimi.</p>
+                    @endif
+                </div>
                 <details class="census-operational-filters"><summary>Filtri operativi</summary>
                     <div class="crm-form-grid">
                         <label class="crm-field"><span>Con proprietario</span><select wire:model.live="filterValues.hasOwner"><option value="">Tutti</option><option>Sì</option><option>No</option></select></label>
                         <label class="crm-field"><span>Con recapito</span><select wire:model.live="filterValues.hasContact"><option value="">Tutti</option><option>Sì</option><option>No</option></select></label>
-                        <label class="crm-field"><span>Comproprietà</span><select wire:model.live="filterValues.coownership"><option value="">Tutte</option><option>Sì</option><option>No</option></select></label>
+                        <label class="crm-field"><span>Comproprietà</span><select wire:model.live="filterValues.coownership"><option value="">Tutti</option><option>Sì</option><option>No</option></select></label>
                         <label class="crm-field"><span>Multi proprietario</span><select wire:model.live="filterValues.multiOwner"><option value="">Tutti</option><option>Sì</option><option>No</option></select></label>
                         <label class="crm-field"><span>Mai contattato</span><select wire:model.live="filterValues.never"><option value="">Tutti</option><option>Sì</option><option>No</option></select></label>
-                        <label class="crm-field"><span>Con attività futura</span><select wire:model.live="filterValues.upcoming"><option value="">Tutte</option><option>Sì</option><option>No</option></select></label>
+                        <label class="crm-field"><span>Con attività futura</span><select wire:model.live="filterValues.upcoming"><option value="">Tutti</option><option>Sì</option><option>No</option></select></label>
                         @if ($view === 'Proprietari')<label class="crm-field"><span>Numero di immobili</span><select wire:model.live="filterValues.count"><option value="">Tutti</option><option value="0">0</option><option value="1">1</option><option>Più di uno</option></select></label>@endif
                     </div>
-                    <p class="crm-muted">Multi proprietario: più di due unità distinte nei Comuni a cui hai accesso. Comproprietà: più proprietari collegati alla stessa unità.</p>
+                    <p class="crm-muted">Multi proprietario: più di 2 unità distinte, sommate su tutti i Comuni a cui hai accesso. Comproprietà: più proprietari della stessa unità.</p>
                 </details>
-            @if ($this->archiveReady)
-                <div class="crm-toolbar">
-                    <label class="crm-field"><span>Mostra prima</span><select wire:model.live="order"><option value="Da contattare">Mai contattati, poi attività meno recenti</option><option value="Ultima attività">Attività più recenti prima</option><option value="Esito">Esito scelto prima</option></select></label>
-                    @if ($order === 'Esito')<label class="crm-field"><span>Esito da mostrare per primo</span><select wire:model.live="firstOutcome"><option>Nessun esito</option>@foreach (\App\Gestionale\Census\CensusQuery::outcomes() as $value)<option value="{{ $value }}">{{ $value }}</option>@endforeach</select></label>@endif
-                </div>
-            @elseif ($mode === 'catastale')
-                <p class="crm-info">Per avviare la ricerca catastale inserisci foglio, particella e subalterno, oppure usa la ricerca libera.</p>
-            @endif
-            <div class="crm-toolbar"><button type="button" class="crm-link" wire:click="resetFilters">Azzera filtri</button></div>
-            @endif
-        </section>
-
-        @if ($this->archiveReady)
-        @if ($view === 'Immobili')
-            @if ($this->membership->role === 'admin')
-                <div class="crm-toolbar crm-archive-bulk-tools">
-                    <label class="crm-check"><input type="checkbox" x-on:change="$wire.selectCurrentPage($event.target.checked)" @checked(count($selectedUnitIds) > 0 && collect($this->results['items'])->every(fn ($row) => in_array((int) $row['unitId'], $selectedUnitIds, true)))>Seleziona la pagina</label>
-                    <span>{{ count($selectedUnitIds) }} selezionati</span>
-                    <button type="button" class="crm-btn secondary" wire:click="openBulkRemoval" @disabled($selectedUnitIds === [])>Rimuovi selezionati dall’archivio</button>
-                </div>
-            @endif
-            <section class="crm-panel crm-archive-results" aria-label="Risultati immobili">
-                <div class="crm-between"><h2>{{ number_format($this->results['total'], 0, ',', '.') }} {{ $this->results['total'] === 1 ? 'immobile' : 'immobili' }} · {{ $this->municipalityName }}</h2></div>
-                @forelse ($this->results['items'] as $entry)
-                    <article class="census-unit-record" wire:key="census-unit-{{ $entry['unitId'] }}">
-                        <div class="census-unit-head">
-                            <div><strong>{{ $entry['address'] ?: $entry['parcelAddress'] ?: 'Indirizzo non presente nella fonte' }}</strong><small>{{ $entry['context']['municipality'] }} · {{ $entry['unit']['source'] === 'sister-text' ? 'Censimento Sister' : ($entry['unit']['source'] === 'demo' ? 'Dati di esempio' : 'Archivio catastale') }} @if ($entry['geographyStatus'] === 'missing')· Foglio catastale non caricato @endif</small></div>
-                            @if ($this->membership->role === 'admin')<label class="crm-check"><input type="checkbox" aria-label="Seleziona immobile {{ $entry['context']['sheet'] }} · {{ $entry['context']['parcel'] }} · subalterno {{ $entry['unit']['sub'] ?: 'non indicato' }}" wire:model.live="selectedUnitIds" value="{{ $entry['unitId'] }}">Seleziona</label>@endif
-                            <details class="census-actions-menu"><summary aria-label="Azioni per {{ $entry['address'] ?: $entry['parcelAddress'] }}">⋯ Azioni</summary>
-                                <button type="button" wire:click="openOutcomeHistory({{ $entry['unitId'] }})">Storico catastale e attività</button>
-                                <button type="button" wire:click="openProposal({{ $entry['unitId'] }})">Segnala una correzione</button>
-                                @can('agency-permission', 'sister.import')<button type="button" wire:click="openSisterImport({{ $entry['unitId'] }})">Importa o aggiorna proprietari</button>@else<button type="button" wire:click="openProposal({{ $entry['unitId'] }})">Richiedi aggiornamento intestazioni</button>@endcan
-                                @if ($this->membership->role === 'admin')<button type="button" wire:click="openCadastralEditor({{ $entry['unitId'] }})">Correggi dati catastali</button>@endif
-                            </details>
-                        </div>
-                        <div class="census-extra-facts"><dl class="census-unit-facts">
-                            @foreach (['Foglio' => $entry['context']['sheet'], 'Particella' => $entry['context']['parcel'], 'Subalterno' => $entry['unit']['sub'] ?: '—', 'Piano' => $entry['unit']['floor'] ?: '—', 'Categoria' => $entry['unit']['category'] ?: '—', 'Consistenza' => $entry['unit']['consistency'] ?: '—'] as $label => $value)
-                                <div><dt>{{ $label }}</dt><dd>{{ $value }}</dd></div>
-                            @endforeach
-                        </dl></div>
-                        <div class="census-unit-body">
-                            <section><h4>{{ count($entry['owners']) ? 'Proprietari · '.count($entry['owners']) : 'Proprietario non associato' }}</h4>
-                                @forelse ($entry['owners'] as $owner)
-                                    <div class="census-owner-in-unit" wire:key="census-owner-{{ $entry['unitId'] }}-{{ $owner['id'] }}">
-                                        <strong>{{ $owner['name'] }}</strong><small>{{ $owner['pid'] ?: 'Codice fiscale non indicato' }} · {{ $owner['holding']['right'] ?? 'Diritto non indicato' }} {{ $owner['holding']['fraction'] ?? '' }}</small>
-                                        @if (($owner['unitCount'] ?? 0) > \App\Gestionale\Census\CensusReader::SOGLIA_MULTI_PROPRIETARIO)<span class="crm-pill">Multi proprietario · {{ $owner['unitCount'] }} unità</span>@endif
-                                        <x-gestionale.census-contact-editor :owner-id="$owner['id']" :text="\App\Gestionale\Census\CensusReader::contactText($owner)" :context-unit-id="$entry['unitId']" :editing-id="$contactId" :editing-unit="$contactContextUnitId" :notice-text="$notice" />
-                                        <div class="crm-actions"><button type="button" class="crm-link" wire:click="openProposal(null, {{ $owner['id'] }}, @js($owner['name']), @js($owner['pid']))">Segnala una correzione</button></div>
-                                    </div>
-                                @empty<p class="crm-muted">Nessun proprietario collegato.</p>@endforelse
-                            </section>
-                            <section><h4>Ultimo riscontro</h4>
-                                @if ($entry['latest'])
-                                    <p><strong>{{ $entry['latest']['outcome'] }}</strong><small>{{ $entry['latest']['type'] }} · {{ $entry['latest']['author'] }} · {{ \App\Gestionale\Activities\ActivityPresentation::dateLabel($entry['latest']['at'], true) }}</small></p>
-                                    @if ($entry['latest']['contactOperation'])<p>Sentito per {{ mb_strtolower($entry['latest']['contactOperation']) }}</p>@endif
-                                    @if ($entry['latest']['next'] !== '')<p>Prossimo contatto: {{ \App\Gestionale\Activities\ActivityPresentation::dateLabel($entry['latest']['next'], true) }}</p>@endif
-                                    @if ($entry['latest']['corrected'])<x-gestionale.crm-pill>Corretto con motivazione</x-gestionale.crm-pill>@endif
-                                @else<p class="crm-muted">Nessun riscontro registrato.</p>@endif
-                                @if ($entry['upcoming'])<p>Prossimo impegno: {{ $entry['upcoming']['type'] }} · {{ \App\Gestionale\Activities\ActivityPresentation::dateLabel($entry['upcoming']['dueAt'], true) }}</p>@endif
-                                <x-gestionale.record-activities :context="['parcel_id' => $entry['parcelId'], 'unit_ids' => [$entry['unitId']]]" compact hide-summary :allow-create="\App\Gestionale\Census\CensusQuery::active($entry['unit'])" />
-                            </section>
-                        </div>
-                        @if ($entry['needsReview'])<p class="crm-info">{{ $entry['locationWarning'] }}</p>@endif
-                        <details class="census-source"><summary>Dati di provenienza e testo originale</summary><p>Comune {{ $entry['context']['municipality'] }} · {{ $entry['context']['kind'] }} · Fonte {{ $entry['unit']['source'] ?: 'non indicata' }} · Data fonte {{ $entry['unit']['situationDate'] ?: $entry['context']['situationDate'] ?: 'non indicata' }}<br>Indirizzo fonte: {{ $entry['unit']['rawAddress'] ?: 'non indicato' }} · Classe {{ $entry['unit']['cadastralClass'] ?: '—' }} · Rendita {{ $entry['unit']['income'] === null ? 'non indicata' : number_format((float) $entry['unit']['income'], 2, ',', '.').' €' }}</p><pre>{{ $entry['unit']['rawText'] ?: 'Nessun testo importato' }}</pre></details>
-                        @if ($entry['holdings'] !== [])
-                            <details class="census-history-row"><summary>Storico intestazioni · {{ count($entry['holdings']) }}</summary>
-                                @foreach ($entry['holdings'] as $holding)
-                                    <article><p><strong>{{ $holding['owner'] }}</strong> · {{ $holding['kind'] ?: ($holding['current'] ? 'Intestazione attuale' : 'Variazione catastale') }}</p><p>{{ $holding['holding']['right'] ?? 'Diritto non indicato' }} {{ $holding['holding']['fraction'] ?? '' }} · {{ $holding['current'] ? 'Attuale' : 'Precedente' }} · {{ $holding['start'] ?: 'Inizio non noto' }} → {{ $holding['end'] ?: 'in corso' }}</p><small>{{ $holding['source'] ?: 'Fonte non indicata' }} · {{ $holding['author'] }}</small>@if ($holding['reason'] !== '')<p>{{ $holding['reason'] }}</p>@endif@if ($holding['exactDateUnknown'])<small>Data esatta della variazione da verificare.</small>@endif</article>
-                                @endforeach
-                            </details>
-                        @endif
-                    </article>
-                @empty
-                    <div class="crm-empty">Nessun immobile trovato con questi criteri.</div>
-                @endforelse
-            </section>
-        @else
-            <section class="crm-panel crm-archive-results" aria-label="Risultati proprietari">
-                <h2>{{ number_format($this->results['total'], 0, ',', '.') }} {{ $this->results['total'] === 1 ? 'proprietario' : 'proprietari' }} · {{ $this->municipalityName }}</h2>
-                @forelse ($this->results['people'] as $person)
-                    @php($owner = $person['owner'])
-                    <article class="census-person-record" wire:key="census-owner-{{ $owner['id'] }}">
-                        <div class="census-person-head"><div><h3>{{ $owner['name'] }}</h3><small>{{ $person['count'] }} {{ $person['count'] === 1 ? 'unità collegata' : 'unità collegate' }}</small><small>Codice fiscale / P. IVA: {{ $owner['pid'] ?: 'non indicato' }}</small><x-gestionale.census-contact-editor :owner-id="$owner['id']" :text="\App\Gestionale\Census\CensusReader::contactText($owner)" :editing-id="$contactId" :editing-unit="$contactContextUnitId" :notice-text="$notice" /></div>
-                            <button type="button" class="crm-btn secondary" wire:click="openProposal(null, {{ $owner['id'] }}, @js($owner['name']), @js($owner['pid']))">Segnala una correzione</button>
-                            <button type="button" class="crm-btn secondary" wire:click="showOwnerProperties({{ $owner['id'] }})">{{ $openOwnerId === $owner['id'] ? 'Chiudi immobili' : 'Mostra immobili ('.$person['count'].')' }}</button>
-                            @if ($this->membership->role === 'admin')<details class="census-actions-menu"><summary>⋯ Azioni</summary><button type="button" wire:click="openOwnerEditor({{ $owner['id'] }})">Gestisci anagrafica</button><button type="button" wire:click="openOwnerRemoval({{ $owner['id'] }})">Rimuovi anagrafica dall’archivio</button></details>@endif
-                        </div>
-                        <x-gestionale.record-activities :context="['owner_contact_id' => $owner['id']]" compact hide-summary />
-                        @if (($owner['contactHistory'] ?? []) !== [])<details class="census-history-row"><summary>Variazioni del recapito · {{ count($owner['contactHistory']) }}</summary>@foreach ($owner['contactHistory'] as $contactChange)<article><p>{{ \App\Gestionale\Activities\ActivityPresentation::dateLabel($contactChange['at'] ?? null, true) }} · {{ $contactChange['actorId'] ?? 'Operatore precedente' }}</p><small>Prima</small><p class="census-contact-text">{{ $contactChange['before'] ?: 'Recapito assente' }}</p><small>Dopo</small><p class="census-contact-text">{{ $contactChange['after'] ?: 'Recapito assente' }}</p></article>@endforeach</details>@endif
-                    </article>
-                    @if ($openOwnerId === $owner['id'])
-                        <div class="census-owner-units">
-                            @forelse ($this->ownerUnits['items'] as $unit)
-                                @php($mainOwner = collect($unit['owners'])->firstWhere('id', $owner['id']))
-                                <div class="{{ in_array($unit['unitId'], $person['matching'] ?? [], true) ? 'census-matching-unit' : '' }}" wire:key="owner-unit-{{ $owner['id'] }}-{{ $unit['unitId'] }}">
-                                    @if (in_array($unit['unitId'], $person['matching'] ?? [], true))<small class="census-match-label">Corrisponde ai filtri</small>@endif
-                                    <article class="census-unit-record {{ \App\Gestionale\Census\CensusQuery::active($unit['unit']) ? '' : 'census-inactive' }}" data-census-unit="{{ $unit['parcelId'] }}:{{ $unit['unitId'] }}">
-                                        <div class="census-unit-head"><div><strong>{{ $unit['address'] ?: $unit['parcelAddress'] }}</strong><small>{{ $unit['context']['municipality'] }} · {{ $unit['unit']['source'] === 'sister-text' ? 'Censimento Sister' : 'Dati di esempio' }} @if ($unit['geographyStatus'] === 'missing')· Foglio catastale non caricato @endif</small></div>
-                                            @if (!\App\Gestionale\Census\CensusQuery::active($unit['unit']))<span class="crm-pill">{{ $unit['unit']['state'] }}</span>@endif
-                                            <details class="census-actions-menu"><summary aria-label="Azioni per {{ $unit['address'] ?: $unit['parcelAddress'] }} · foglio {{ $unit['context']['sheet'] }} · particella {{ $unit['context']['parcel'] }} · subalterno {{ $unit['unit']['sub'] ?: 'non indicato' }}">⋯ Azioni</summary>
-                                                <button type="button" wire:click="openProposal({{ $unit['unitId'] }})">Segnala una correzione</button>
-                                                @can('agency-permission', 'sister.import')<button type="button" wire:click="openSisterImport({{ $unit['unitId'] }})">Importa o aggiorna proprietari</button>@else<button type="button" wire:click="openProposal({{ $unit['unitId'] }})">Richiedi aggiornamento intestazioni</button>@endcan
-                                                @if ($this->membership->role === 'admin')<button type="button" wire:click="openCadastralEditor({{ $unit['unitId'] }})">Correggi dati catastali</button>@endif
-                                            </details>
-                                        </div>
-                                        <div class="census-extra-facts"><dl class="census-unit-facts">
-                                            @foreach (['Foglio' => $unit['context']['sheet'], 'Particella' => $unit['context']['parcel'], 'Subalterno' => $unit['unit']['sub'] ?: '—', 'Piano' => $unit['unit']['floor'] ?: '—', 'Categoria' => $unit['unit']['category'] ?: '—', 'Consistenza' => $unit['unit']['consistency'] ?: '—'] as $label => $value)<div><dt>{{ $label }}</dt><dd>{{ $value }}</dd></div>@endforeach
-                                        </dl></div>
-                                        @if ($mainOwner && $mainOwner['holding'])<p class="crm-muted">{{ $mainOwner['holding']['right'] ?: 'Diritto non indicato' }} · quota {{ $mainOwner['holding']['fraction'] ?: 'non indicata' }}</p>@endif
-                                        <div class="census-unit-body">
-                                            <section><h4>{{ count($unit['owners']) > 1 ? 'Comproprietari · '.(count($unit['owners']) - 1) : 'Nessun comproprietario' }}</h4>
-                                                @foreach ($unit['owners'] as $coOwner)
-                                                    @if ($coOwner['id'] !== $owner['id'])<div class="census-owner-in-unit"><strong>{{ $coOwner['name'] }}</strong><small>{{ $coOwner['pid'] ?: 'Codice fiscale non indicato' }} · {{ $coOwner['holding']['right'] ?? 'Diritto non indicato' }} {{ $coOwner['holding']['fraction'] ?? '' }}</small><x-gestionale.census-contact-editor :owner-id="$coOwner['id']" :text="\App\Gestionale\Census\CensusReader::contactText($coOwner)" :context-unit-id="$unit['unitId']" :editing-id="$contactId" :editing-unit="$contactContextUnitId" :notice-text="$notice" /></div>@endif
-                                                @endforeach
-                                            </section>
-                                            <section><h4>Ultimo riscontro</h4>
-                                                @if ($unit['latest'])
-                                                    <p><strong>{{ $unit['latest']['outcome'] }}</strong><small>{{ $unit['latest']['type'] }} · {{ $unit['latest']['author'] }} · {{ \App\Gestionale\Activities\ActivityPresentation::dateLabel($unit['latest']['at'], true) }}</small></p>
-                                                    @if ($unit['latest']['contactOperation'])<p>Sentito per {{ mb_strtolower($unit['latest']['contactOperation']) }}</p>@endif
-                                                    @if ($unit['latest']['next'] !== '')<p>Prossimo contatto: {{ \App\Gestionale\Activities\ActivityPresentation::dateLabel($unit['latest']['next'], true) }}</p>@endif
-                                                    @if ($unit['latest']['corrected'])<x-gestionale.crm-pill>Corretto con motivazione</x-gestionale.crm-pill>@endif
-                                                @else<p class="crm-muted">Nessun riscontro registrato.</p>@endif
-                                                @if ($unit['upcoming'])<p>Prossimo impegno: {{ $unit['upcoming']['type'] }} · {{ \App\Gestionale\Activities\ActivityPresentation::dateLabel($unit['upcoming']['dueAt'], true) }}</p>@endif
-                                                <x-gestionale.record-activities :context="['parcel_id' => $unit['parcelId'], 'unit_ids' => [$unit['unitId']]]" compact hide-summary :allow-create="\App\Gestionale\Census\CensusQuery::active($unit['unit'])" />
-                                            </section>
-                                        </div>
-                                        @if ($unit['needsReview'])<p class="crm-info">{{ $unit['locationWarning'] }}</p>@endif
-                                        @if ($unit['holdings'] !== [])<details class="census-history-row"><summary>Storico intestazioni · {{ count($unit['holdings']) }}</summary>@foreach ($unit['holdings'] as $holding)<article><p><strong>{{ $holding['owner'] }}</strong> · {{ $holding['kind'] ?: ($holding['current'] ? 'Intestazione attuale' : 'Variazione catastale') }}</p><p>{{ $holding['holding']['right'] ?? 'Diritto non indicato' }} {{ $holding['holding']['fraction'] ?? '' }} · {{ $holding['current'] ? 'Attuale' : 'Precedente' }} · {{ $holding['start'] ?: 'Inizio non noto' }} → {{ $holding['end'] ?: 'in corso' }}</p></article>@endforeach</details>@endif
-                                        <details class="census-source"><summary>Dati di provenienza e testo originale</summary><p>Catasto {{ $unit['context']['kind'] }} · {{ $unit['context']['code'] }} · Sezione {{ $unit['context']['section'] ?: 'non indicata' }} · Data fonte {{ $unit['unit']['situationDate'] ?: $unit['context']['situationDate'] ?: 'non indicata' }}<br>Classe {{ $unit['unit']['cadastralClass'] ?: '—' }} · Rendita {{ $unit['unit']['income'] === null ? 'non indicata' : number_format((float) $unit['unit']['income'], 2, ',', '.').' €' }}</p><pre>{{ $unit['unit']['rawText'] ?: 'Nessun testo importato' }}</pre></details>
-                                    </article>
-                                </div>
-                            @empty<p class="crm-muted">Nessuna unità visibile per questo proprietario.</p>@endforelse
-                            @if ($this->ownerUnits['total'] > 0)
-                                @php($ownerUnitsLastPage = max(1, (int) ceil($this->ownerUnits['total'] / $this->ownerUnits['size'])))
-                                <nav class="census-pager" aria-label="Pagine immobili del proprietario"><button type="button" class="crm-btn secondary" wire:click="setOwnerUnitsPage({{ $this->ownerUnits['page'] - 1 }})" @disabled($this->ownerUnits['page'] <= 1)>Precedente</button><span>{{ $this->ownerUnits['total'] }} immobili · pagina {{ $this->ownerUnits['page'] }} di {{ $ownerUnitsLastPage }}</span><button type="button" class="crm-btn secondary" wire:click="setOwnerUnitsPage({{ $this->ownerUnits['page'] + 1 }})" @disabled($this->ownerUnits['page'] >= $ownerUnitsLastPage)>Successiva</button></nav>
-                            @endif
-                        </div>
-                    @endif
-                @empty
-                    <div class="crm-empty">Nessun proprietario trovato con questi criteri.</div>
-                @endforelse
-            </section>
+            </details>
         @endif
+        <div class="crm-toolbar"><button type="button" class="crm-link" wire:click="resetFilters">Azzera filtri</button></div>
+    </section>
 
-        @php($lastPage = max(1, (int) ceil($this->results['total'] / 20)))
-        <nav class="census-pager" aria-label="Pagine risultati">
-            <button type="button" class="crm-btn secondary" wire:click="setPage({{ $page - 1 }})" @disabled($page <= 1)>Precedente</button>
-            <span>{{ $this->results['total'] }} risultati · pagina {{ $page }} di {{ $lastPage }}</span>
-            <button type="button" class="crm-btn secondary" wire:click="setPage({{ $page + 1 }})" @disabled($page >= $lastPage)>Successiva</button>
-        </nav>
-        @endif
+    @if ($this->archiveReady)
+        <div class="crm-toolbar">
+            <label class="crm-field"><span>Mostra prima</span><select wire:model.live="order"><option value="Da contattare">Mai contattati, poi attività meno recenti</option><option value="Ultima attività">Attività più recenti prima</option><option value="Esito">Esito scelto prima</option></select></label>
+            @if ($order === 'Esito')<label class="crm-field"><span>Esito da mostrare per primo</span><select wire:model.live="firstOutcome">@foreach (['Nessun esito', ...\App\Gestionale\Census\CensusQuery::outcomes()] as $value)<option value="{{ $value }}">{{ $value }}</option>@endforeach</select></label>@endif
+        </div>
+    @elseif ($municipalityCode !== '' && $mode === 'catastale')
+        <p class="crm-info">Per avviare la ricerca catastale inserisci foglio, particella e subalterno, oppure usa la ricerca libera.</p>
     @endif
 
+    <div aria-busy="false" wire:loading.attr="aria-busy" wire:target="{{ $loadingTargets }}">
+        <div role="status" aria-live="polite" wire:loading.block wire:target="{{ $loadingTargets }}"><p>Caricamento archivio catastale…</p><div class="crm-skeleton-list" aria-hidden="true">@foreach ([1, 2, 3] as $n)<div class="crm-skeleton-card"></div>@endforeach</div></div>
+        @if ($this->archiveReady)
+            @if ($view === 'Immobili' && $this->membership->role === 'admin')
+                <div class="crm-toolbar">
+                    <label class="crm-check"><input type="checkbox" x-on:change="$wire.selectCurrentPage($event.target.checked)" @checked(count($selectedUnitIds) > 0 && collect($this->results['items'])->every(fn ($row) => in_array((int) $row['unitId'], $selectedUnitIds, true)))>Seleziona la pagina</label>
+                    <span>{{ count($selectedUnitIds) }} selezionati</span>
+                    <button type="button" class="crm-btn secondary" wire:click="openBulkRemoval" @disabled($selectedUnitIds === [])>Elimina questi immobili</button>
+                </div>
+            @endif
+            @include('gestionale.archive.pager', ['total' => $this->results['total'], 'size' => $this->results['size'], 'page' => $page, 'setter' => 'setPage', 'label' => 'Pagine risultati'])
+            @if ($view === 'Immobili')
+                @foreach ($this->results['items'] as $entry)
+                    @if (($entry['kind'] ?? 'unit') === 'terrain')
+                        @include('gestionale.archive.terrain-record', ['entry' => $entry])
+                    @else
+                        @include('gestionale.archive.unit-record', ['entry' => $entry, 'mainOwnerId' => null])
+                    @endif
+                @endforeach
+            @else
+                @foreach ($this->results['people'] as $person)
+                    @php($owner = $person['owner'])
+                    <article class="census-person-record" wire:key="census-owner-{{ $owner['id'] }}">
+                        <div class="census-person-head">
+                            <div>
+                                <h3>{{ $owner['name'] }}</h3>
+                                @if ($person['multiOwner'])<x-gestionale.crm-pill>{{ $person['count'] }} immobili collegati</x-gestionale.crm-pill>@endif
+                                <small>P. Iva / Codice Fiscale: {{ $owner['pid'] ?: 'non indicato' }}</small>
+                                <x-gestionale.census-contact-editor :owner-id="$owner['id']" :text="\App\Gestionale\Census\CensusReader::contactText($owner)" :editing-id="$cardContactId" :editing-unit="$contactContextUnitId" :notice-text="$notice" />
+                                @if (($owner['birthDetails'] ?? '') !== '')<small>{{ $owner['birthDetails'] }}</small>@endif
+                            </div>
+                            <button type="button" class="crm-btn secondary" aria-expanded="{{ $openOwnerId === $owner['id'] ? 'true' : 'false' }}" wire:click="showOwnerProperties({{ $owner['id'] }})">{{ $openOwnerId === $owner['id'] ? 'Chiudi immobili' : 'Mostra immobili ('.$person['count'].')' }}</button>
+                            <button type="button" class="crm-btn secondary" wire:click="openOwnerHistory({{ $owner['id'] }})">Storico catastale e recapiti</button>
+                            <button type="button" class="crm-btn secondary" wire:click="openProposal(null, {{ $owner['id'] }}, @js($owner['name']), @js($owner['pid']))">Segnala una correzione</button>
+                            @if ($this->membership->role === 'admin')<details class="census-actions-menu"><summary aria-label="Anagrafica di {{ $owner['name'] }}">Gestisci anagrafica</summary><button type="button" wire:click="openOwnerEditor({{ $owner['id'] }})">Modifica anagrafica</button><button type="button" wire:click="openOwnerRemoval({{ $owner['id'] }})">Elimina proprietario</button></details>@endif
+                        </div>
+                        <x-gestionale.record-activities :context="['owner_contact_id' => $owner['id']]" compact hide-summary :person-actions="true" :menu-label="'Azioni per '.$owner['name']" />
+                        @if ($openOwnerId === $owner['id'])
+                            <div class="census-owner-units">
+                                @foreach ($this->ownerUnits['items'] as $unit)
+                                    <div class="{{ in_array($unit['unitId'], $person['matching'] ?? [], true) ? 'census-matching-unit' : '' }}" wire:key="owner-unit-{{ $owner['id'] }}-{{ $unit['unitId'] }}">
+                                        @if (in_array($unit['unitId'], $person['matching'] ?? [], true))<small class="census-match-label">Corrisponde ai filtri</small>@endif
+                                        @include('gestionale.archive.unit-record', ['entry' => $unit, 'mainOwnerId' => $owner['id']])
+                                    </div>
+                                @endforeach
+                                @if ($this->ownerUnits['total'] > 0)
+                                    @include('gestionale.archive.pager', ['total' => $this->ownerUnits['total'], 'size' => $this->ownerUnits['size'], 'page' => $this->ownerUnits['page'], 'setter' => 'setOwnerUnitsPage', 'label' => 'Pagine immobili del proprietario'])
+                                @else
+                                    <p class="crm-muted">Nessuna unità visibile per questo proprietario.</p>
+                                @endif
+                            </div>
+                        @endif
+                    </article>
+                @endforeach
+            @endif
+            @if ($this->results['total'] === 0)<div class="crm-empty">Nessun risultato con questi filtri.</div>@endif
+            @include('gestionale.archive.pager', ['total' => $this->results['total'], 'size' => $this->results['size'], 'page' => $page, 'setter' => 'setPage', 'label' => 'Pagine risultati'])
+        @endif
+    </div>
+
     @if ($bulkRemovalOpen)
-        <dialog wire:ignore.self x-data x-init="$nextTick(() => { if ($el.isConnected && ! $el.open) $el.showModal() })" x-on:cancel.prevent="$wire.closeBulkRemoval()" x-on:click="if ($event.target === $el) $wire.closeBulkRemoval()" class="proto-dialog reko-prototype" aria-labelledby="bulk-census-removal-title">
+        <x-gestionale.crm-dialog :title="'Rimuovi '.count($selectedUnitIds).' immobili'" label="Archivio catastale" :close="'$wire.closeBulkRemoval()'">
             <form class="crm-form" wire:submit="removeSelected">
-                <div class="proto-dialog-heading"><div><p class="proto-eyebrow">Archivio catastale</p><h2 id="bulk-census-removal-title">Rimuovi {{ count($selectedUnitIds) }} immobili</h2></div><button type="button" class="crm-dialog-close" wire:click="closeBulkRemoval" aria-label="Chiudi">×</button></div>
                 <p>L’operazione li toglie dall’elenco attivo e conserva unità, intestatari, attività e cronologia. Gli immobili di portafoglio collegati verranno segnalati per una verifica catastale.</p>
                 <label class="crm-field"><span>Motivo</span><textarea wire:model="bulkRemovalReason" maxlength="4000" required></textarea></label>
                 @if ($notice !== '')<p class="crm-form-error" role="alert">{{ $notice }}</p>@endif
                 <div class="crm-actions"><button class="crm-btn" wire:loading.attr="disabled">Conferma rimozione logica</button><button type="button" class="crm-btn secondary" wire:click="closeBulkRemoval">Annulla</button></div>
             </form>
-        </dialog>
+        </x-gestionale.crm-dialog>
+    @endif
+
+    @if ($outcomeOpen)
+        @php($ctx = $this->outcomeContext)
+        <x-gestionale.crm-dialog title="Registra contatto" label="Archivio catastale" :close="'$wire.closeOutcome()'">
+            <form class="crm-form" wire:submit="submitOutcome">
+                <label class="crm-field"><span>Proprietario</span><select wire:model.live="outcomeOwnerId" required><option value="">Scegli il proprietario</option>@foreach ($ctx['owners'] as $o)<option value="{{ $o['id'] }}">{{ $o['name'] }}</option>@endforeach</select></label>
+                @if ($ctx['owners'] === [])<p class="crm-muted">Nessun proprietario attuale collegato all’unità.</p>@endif
+                <label class="crm-field"><span>Vendita o affitto</span><select wire:model.live="outcomeOperation" required><option value="">Scegli</option>@foreach (\App\Gestionale\Activities\ActivityCatalog::CONTACT_OPERATIONS as $op)<option>{{ $op }}</option>@endforeach</select></label>
+                <label class="crm-field"><span>Esito</span><select wire:model="outcomeValue" required @disabled($outcomeOperation === '')><option value="">Scegli un esito</option>@if ($outcomeOperation !== '')@foreach (\App\Gestionale\Activities\ActivityCatalog::outcomesForContact($outcomeOperation) as $value)@continue(\App\Gestionale\Activities\ActivityCatalog::suspendedAcquisition(['outcome' => $value]))<option>{{ $value }}</option>@endforeach @endif</select></label>
+                @if ($ctx['pending'] !== [])
+                    <fieldset class="crm-field"><legend>Attività già da completare oggi</legend>
+                        @foreach ($ctx['pending'] as $p)<label class="crm-check"><input type="radio" wire:model.live="outcomeExistingId" value="{{ $p['id'] }}" @disabled(! $p['selectable'])>{{ $p['label'] }}</label>@endforeach
+                        <label class="crm-check"><input type="checkbox" wire:model="outcomeConfirmNew">Registra comunque un nuovo contatto</label>
+                    </fieldset>
+                @endif
+                <label class="crm-field"><span>Nota · facoltativa</span><textarea wire:model="outcomeNote" maxlength="4000"></textarea></label>
+                <label class="crm-check"><input type="checkbox" wire:model.live="outcomeSchedule">Pianifica il prossimo impegno</label>
+                @if ($outcomeSchedule)
+                    <div class="crm-form-grid"><label class="crm-field"><span>Giorno e ora</span><input type="datetime-local" wire:model="outcomeNextAt" required></label></div>
+                    <label class="crm-field"><span>Motivo del prossimo impegno</span><textarea wire:model="outcomeNextReason" maxlength="4000" required></textarea></label>
+                @endif
+                @if ($notice !== '')<p class="crm-form-error" role="alert">{{ $notice }}</p>@endif
+                <div class="crm-actions"><button class="crm-btn" wire:loading.attr="disabled">Registra</button><button type="button" class="crm-btn secondary" wire:click="closeOutcome">Annulla</button></div>
+            </form>
+        </x-gestionale.crm-dialog>
     @endif
 
     @if ($proposalOpen)
-        <dialog wire:ignore.self x-data x-init="$nextTick(() => { if ($el.isConnected && ! $el.open) $el.showModal() })" x-on:cancel.prevent="$wire.closeProposal()" x-on:click="if ($event.target === $el) $wire.closeProposal()" class="proto-dialog reko-prototype" aria-labelledby="census-proposal-title">
+        <x-gestionale.crm-dialog title="Proponi correzione" label="Archivio catastale" :close="'$wire.closeProposal()'">
             <form class="crm-form" wire:submit="submitProposal">
-                <div class="proto-dialog-heading"><div><p class="proto-eyebrow">Archivio catastale</p><h2 id="census-proposal-title">Proponi correzione</h2></div><button type="button" class="crm-dialog-close" wire:click="closeProposal" aria-label="Chiudi">×</button></div>
                 @if ($proposalUnitId)<p>La proposta sarà collegata all’unità catastale selezionata.</p>@endif
                 <label class="crm-field"><span>Nominativo / denominazione{{ $proposalNewOwner ? '' : ' · facoltativo' }}</span><input wire:model="proposalName" maxlength="255" @required($proposalNewOwner)></label>
                 <label class="crm-field"><span>Codice fiscale / P. IVA · facoltativo</span><input wire:model="proposalPid" maxlength="32"></label>
@@ -1412,194 +1554,66 @@ new #[Layout('layouts::gestionale'), Title('Archivio catastale')] class extends 
                 <p class="crm-muted">L’Amministratore registrerà l’esito della verifica. L’approvazione non modifica automaticamente intestazioni, quote o dati catastali.</p>
                 <div class="crm-actions"><button class="crm-btn" wire:loading.attr="disabled">Invia proposta</button><button type="button" class="crm-btn secondary" wire:click="closeProposal">Annulla</button></div>
             </form>
-        </dialog>
-    @endif
-
-    @if ($associationOpen)
-        <dialog wire:ignore.self x-data x-init="$nextTick(() => { if ($el.isConnected && ! $el.open) $el.showModal() })" x-on:cancel.prevent="$wire.closeAssociation()" x-on:click="if ($event.target === $el) $wire.closeAssociation()" class="proto-dialog reko-prototype" aria-labelledby="census-association-title">
-            <form class="crm-form" wire:submit="associateOwner">
-                <div class="proto-dialog-heading"><div><p class="proto-eyebrow">Archivio catastale</p><h2 id="census-association-title">Associa proprietario</h2></div><button type="button" class="crm-dialog-close" wire:click="closeAssociation" aria-label="Chiudi">×</button></div>
-                <label class="crm-field"><span>Cerca proprietario esistente</span><input type="search" wire:model.live.debounce.250ms="ownerSearch" maxlength="255" placeholder="Nome, codice fiscale o partita IVA"></label>
-                @if (mb_strlen(trim($ownerSearch)) >= 2)
-                    <div class="census-link-grid" role="group" aria-label="Proprietari trovati">
-                        @forelse ($this->ownerOptions as $ownerOption)
-                            <label class="crm-check"><input type="radio" wire:model="selectedOwnerId" value="{{ $ownerOption['id'] }}">{{ $ownerOption['name'] }} · {{ $ownerOption['pid'] ?: 'codice non indicato' }}</label>
-                        @empty<p class="crm-muted">Nessun proprietario accessibile trovato.</p>@endforelse
-                    </div>
-                @else<p class="crm-muted">Inserisci almeno due caratteri per cercare le anagrafiche accessibili.</p>@endif
-                <div class="crm-form-grid"><label class="crm-field"><span>Diritto</span><input wire:model="associationRight" maxlength="255" required placeholder="Proprietà, usufrutto…"></label><label class="crm-field"><span>Quota</span><input wire:model="associationFraction" maxlength="20" required placeholder="1/1, 1/2…"></label><label class="crm-field"><span>Fonte</span><input wire:model="associationSource" maxlength="255" required placeholder="Visura, dichiarazione…"></label><label class="crm-field"><span>Data</span><input type="date" wire:model="associationDate"></label></div>
-                <label class="crm-field"><span>Nota</span><textarea wire:model="associationNote" maxlength="4000"></textarea></label>
-                @if ($notice !== '')<p class="crm-form-error" role="alert">{{ $notice }}</p>@endif
-                <div class="crm-actions"><button class="crm-btn" wire:loading.attr="disabled" @disabled($selectedOwnerId === null)>Associa</button><button type="button" class="crm-btn secondary" wire:click="closeAssociation">Annulla</button><button type="button" class="crm-link" wire:click="proposeNewOwner">Proponi nuova anagrafica</button></div>
-            </form>
-        </dialog>
+        </x-gestionale.crm-dialog>
     @endif
 
     @if ($censusRemovalOpen)
-        <dialog wire:ignore.self x-data x-init="$nextTick(() => { if ($el.isConnected && ! $el.open) $el.showModal() })" x-on:cancel.prevent="$wire.closeCensusRemoval()" x-on:click="if ($event.target === $el) $wire.closeCensusRemoval()" class="proto-dialog reko-prototype" aria-labelledby="census-removal-title">
+        @php($removal = $this->censusRemovalSummary)
+        <x-gestionale.crm-dialog title="Elimina proprietario" label="Archivio catastale" :close="'$wire.closeCensusRemoval()'">
             <form class="crm-form" wire:submit="confirmCensusRemoval">
-                <div class="proto-dialog-heading"><div><p class="proto-eyebrow">Archivio catastale</p><h2 id="census-removal-title">{{ $censusRemovalMode === 'unlink' ? 'Rimuovi associazione' : 'Rimuovi proprietario' }}</h2></div><button type="button" class="crm-dialog-close" wire:click="closeCensusRemoval" aria-label="Chiudi">×</button></div>
-                <p>L’operazione è logica: nessun dato viene cancellato fisicamente e le variazioni restano nello storico.</p>
-                @if ($censusRemovalMode === 'unlink')
-                    <label class="crm-field"><span>Data variazione · facoltativa</span><input type="date" wire:model="censusRemovalDate"></label>
-                    <label class="crm-check"><input type="checkbox" wire:model="censusRemovalCorrection">Associazione originaria errata</label>
-                @endif
-                <label class="crm-field"><span>Motivo{{ $censusRemovalMode === 'owner' ? ' · facoltativo' : '' }}</span><textarea wire:model="censusRemovalReason" maxlength="4000" @required($censusRemovalMode === 'unlink')></textarea></label>
+                <p><strong>{{ $removal['name'] }}</strong></p>
+                <p>{{ $removal['links'] }} collegamenti catastali · {{ $removal['portfolio'] }} immobili a portafoglio · {{ $removal['activities'] }} attività nello storico</p>
+                <p class="crm-muted">L’operazione è logica: attività, vecchie intestazioni e documenti restano conservati. Rimuovere un’associazione non elimina il proprietario.</p>
+                <label class="crm-field"><span>Motivo (facoltativo)</span><textarea wire:model="censusRemovalReason" maxlength="4000"></textarea></label>
                 <label class="crm-check"><input type="checkbox" wire:model="censusRemovalConfirmed" required>Confermo la variazione sulla scheda indicata</label>
                 @if ($notice !== '')<p class="crm-form-error" role="alert">{{ $notice }}</p>@endif
                 <div class="crm-actions"><button class="crm-btn" wire:loading.attr="disabled">Conferma variazione</button><button type="button" class="crm-btn secondary" wire:click="closeCensusRemoval">Annulla</button></div>
             </form>
-        </dialog>
+        </x-gestionale.crm-dialog>
     @endif
 
     @if ($ownerEditorOpen)
-        <dialog wire:ignore.self x-data x-init="$nextTick(() => { if ($el.isConnected && ! $el.open) $el.showModal() })" x-on:cancel.prevent="$wire.closeOwnerEditor()" x-on:click="if ($event.target === $el) $wire.closeOwnerEditor()" class="proto-dialog reko-prototype" aria-labelledby="owner-editor-title">
+        <x-gestionale.crm-dialog title="Modifica anagrafica proprietario" label="REKO Gestionale · Amministratore" wide :close="'$wire.closeOwnerEditor()'">
             <form class="crm-form" wire:submit="saveOwner">
-                <div class="proto-dialog-heading"><div><p class="proto-eyebrow">Archivio catastale</p><h2 id="owner-editor-title">Gestisci anagrafica</h2></div><button type="button" class="crm-dialog-close" wire:click="closeOwnerEditor" aria-label="Chiudi">×</button></div>
-                <label class="crm-field"><span>Nominativo / denominazione</span><input wire:model="ownerEditName" maxlength="255" required></label>
-                <label class="crm-field"><span>Codice fiscale / P. IVA</span><input wire:model="ownerEditPid" maxlength="32" required></label>
-                <div class="crm-form-grid"><label class="crm-field"><span>Nome</span><input wire:model="ownerEditFirstName" maxlength="255"></label><label class="crm-field"><span>Cognome</span><input wire:model="ownerEditLastName" maxlength="255"></label><label class="crm-field"><span>Ragione sociale</span><input wire:model="ownerEditCompanyName" maxlength="255"></label></div>
-                <label class="crm-field"><span>Tag separati da virgola</span><input wire:model="ownerEditTags" maxlength="1000"></label>
-                <label class="crm-field"><span>Note interne</span><textarea wire:model="ownerEditNotes" maxlength="10000"></textarea></label>
-                <label class="crm-field"><span>Motivo della correzione</span><textarea wire:model="ownerEditReason" maxlength="4000"></textarea></label>
-                @if ($notice !== '')<p class="crm-form-error" role="alert">{{ $notice }}</p>@endif
-                <div class="crm-actions"><button class="crm-btn" wire:loading.attr="disabled">Salva anagrafica</button><button type="button" class="crm-btn secondary" wire:click="closeOwnerEditor">Annulla</button></div>
+                <div class="crm-form-grid">
+                    <label class="crm-field"><span>Dati personali / denominazione</span><input wire:model="ownerEditName" required pattern=".*[A-Za-zÀ-ÖØ-öø-ÿ].*" title="Inserisci un nome o una denominazione, non solo numeri o simboli" maxlength="255"></label>
+                    <label class="crm-field"><span>Codice fiscale / identificativo</span><input wire:model="ownerEditPid" required maxlength="32"></label>
+                </div>
+                <details><summary>Nome, cognome o ragione sociale separati</summary><p>Compila solo i campi verificati. Il nominativo acquisito non viene separato automaticamente; la denominazione visibile resta quella indicata sopra.</p>
+                    <div class="crm-form-grid"><label class="crm-field"><span>Nome</span><input wire:model="ownerEditFirstName" maxlength="120"></label><label class="crm-field"><span>Cognome</span><input wire:model="ownerEditLastName" maxlength="120"></label><label class="crm-field"><span>Ragione sociale</span><input wire:model="ownerEditCompanyName" maxlength="255"></label></div>
+                </details>
+                <x-gestionale.crm-tag-input model="ownerEditTags" :value="$ownerEditTags" label="Tag del proprietario" :live="false" />
+                <label class="crm-field"><span>Note</span><textarea wire:model="ownerEditNotes" maxlength="10000"></textarea></label>
+                <label class="crm-field"><span>Motivo della correzione</span><textarea wire:model="ownerEditReason" required></textarea></label>
+                <div class="crm-form-footer">
+                    @if ($notice !== '')<p class="crm-error" role="alert">{{ $notice }}</p>@endif
+                    <button class="crm-btn" type="submit" wire:loading.attr="disabled" wire:target="saveOwner"><span wire:loading.remove wire:target="saveOwner">Salva anagrafica</span><span wire:loading wire:target="saveOwner">Salvataggio…</span></button>
+                </div>
             </form>
-        </dialog>
-    @endif
-
-    @if ($locationEditorOpen)
-        <dialog wire:ignore.self x-data x-init="$nextTick(() => { if ($el.isConnected && ! $el.open) $el.showModal() })" x-on:cancel.prevent="$wire.closeLocationEditor()" x-on:click="if ($event.target === $el) $wire.closeLocationEditor()" class="proto-dialog reko-prototype" aria-labelledby="census-location-title">
-            <form class="crm-form" wire:submit="saveLocation">
-                <div class="proto-dialog-heading"><div><p class="proto-eyebrow">Correzione della scheda</p><h2 id="census-location-title">Indirizzo e frazione</h2></div><button type="button" class="crm-dialog-close" wire:click="closeLocationEditor" aria-label="Chiudi">×</button></div>
-                <p>Il testo importato da SISTER resta conservato come dato di provenienza.</p>
-                <label class="crm-field"><span>Via</span><input wire:model="locationStreet" maxlength="255" required></label>
-                <label class="crm-field"><span>Civico</span><input wire:model="locationCivic" maxlength="30"></label>
-                <label class="crm-field"><span>Frazione</span><input wire:model="locationLocality" maxlength="120"></label>
-                <label class="crm-field"><span>Motivo della correzione</span><textarea wire:model="locationReason" maxlength="4000" required></textarea></label>
-                @if ($notice !== '')<p class="crm-form-error" role="alert">{{ $notice }}</p>@endif
-                <div class="crm-actions"><button class="crm-btn" wire:loading.attr="disabled">Salva indirizzo</button><button type="button" class="crm-btn secondary" wire:click="closeLocationEditor">Annulla</button></div>
-            </form>
-        </dialog>
+            <x-gestionale.census-contact-editor :owner-id="$editingOwnerId" :text="$this->editingOwnerContact" scope="-dialog" :editing-id="$contactId" :editing-unit="$contactContextUnitId" :notice-text="$notice" />
+        </x-gestionale.crm-dialog>
     @endif
 
     @if ($cadastralEditorOpen)
-        <dialog wire:ignore.self x-data x-init="$nextTick(() => { if ($el.isConnected && ! $el.open) $el.showModal() })" x-on:cancel.prevent="$wire.closeCadastralEditor()" x-on:click="if ($event.target === $el) $wire.closeCadastralEditor()" class="proto-dialog reko-prototype" aria-labelledby="cadastral-editor-title">
+        <x-gestionale.crm-dialog title="Correggi dati catastali" label="Archivio catastale" :close="'$wire.closeCadastralEditor()'">
             <form class="crm-form" wire:submit="saveCadastral">
-                <div class="proto-dialog-heading"><div><p class="proto-eyebrow">Archivio catastale</p><h2 id="cadastral-editor-title">Correggi dati catastali</h2></div><button type="button" class="crm-dialog-close" wire:click="closeCadastralEditor" aria-label="Chiudi">×</button></div>
                 <div class="crm-form-grid"><label class="crm-field"><span>Indirizzo</span><input wire:model="cadastralAddress" maxlength="1000"></label><label class="crm-field"><span>Categoria</span><input wire:model="cadastralCategory" maxlength="20" placeholder="A/2" required></label><label class="crm-field"><span>Piano</span><input wire:model="cadastralFloor" maxlength="100"></label><label class="crm-field"><span>Zona censuaria</span><input wire:model="cadastralZone" maxlength="40"></label><label class="crm-field"><span>Classe catastale</span><input wire:model="cadastralClass" maxlength="40"></label><label class="crm-field"><span>Consistenza</span><input wire:model="cadastralConsistency" maxlength="60"></label><label class="crm-field"><span>Rendita (€)</span><input type="number" min="0" step="0.01" wire:model="cadastralIncome"></label><label class="crm-field"><span>Ultima verifica</span><input type="date" wire:model="cadastralLastVerified"></label></div>
                 <label class="crm-field"><span>Motivo della correzione</span><textarea wire:model="cadastralReason" maxlength="4000" required></textarea></label>
                 @if ($notice !== '')<p class="crm-form-error" role="alert">{{ $notice }}</p>@endif
                 <div class="crm-actions"><button class="crm-btn" wire:loading.attr="disabled">Salva correzione</button><button type="button" class="crm-btn secondary" wire:click="closeCadastralEditor">Annulla</button></div>
             </form>
-        </dialog>
+        </x-gestionale.crm-dialog>
     @endif
 
     @if ($sisterImportOpen)
-        <dialog wire:ignore.self x-data x-init="$nextTick(() => { if ($el.isConnected && ! $el.open) $el.showModal() })" x-on:cancel.prevent="$wire.closeSisterImport()" x-on:click="if ($event.target === $el) $wire.closeSisterImport()" class="proto-dialog reko-prototype" aria-labelledby="sister-import-title">
-            <div class="crm-form">
-                <div class="proto-dialog-heading">
-                    <div><p class="proto-eyebrow">Archivio catastale</p><h2 id="sister-import-title">Importa da SISTER</h2></div>
-                    <button type="button" class="crm-dialog-close" wire:click="closeSisterImport" aria-label="Chiudi">×</button>
-                </div>
-                @if ($sisterResult)
-                    <section class="crm-panel" role="status">
-                        <h3>{{ $sisterResult['title'] ?? 'Importazione completata' }}</h3>
-                        <p>{{ $sisterResult['detail'] ?? 'Dati catastali salvati.' }}</p>
-                        <div class="crm-actions"><button type="button" class="crm-btn" wire:click="openImportedSisterResults">Apri l’Archivio aggiornato</button></div>
-                    </section>
-                @else
-                    <form wire:submit="previewSisterImport">
-                        <div class="crm-form-grid">
-                            <label class="crm-field"><span>Comune</span><input wire:model="sisterMunicipality" maxlength="150" required></label>
-                            <label class="crm-field"><span>Provincia</span><input wire:model="sisterProvince" maxlength="2" placeholder="CN" required></label>
-                            <label class="crm-field"><span>Codice catastale</span><input wire:model.live="sisterCode" maxlength="4" placeholder="F205" required></label>
-                            <label class="crm-field"><span>Catasto</span><select wire:model="sisterKind"><option>Fabbricati</option><option>Terreni</option></select></label>
-                            <label class="crm-field"><span>Sezione · se presente</span><input wire:model="sisterSection" maxlength="12"></label>
-                            <label class="crm-field"><span>Data della visura · se non presente nel testo</span><input type="date" wire:model="sisterSituationDate"></label>
-                        </div>
-                        <section class="crm-panel" aria-label="Dati immobili SISTER">
-                            <label class="crm-field"><span>Testo immobili</span><textarea wire:model="sisterEstatesText" rows="6" maxlength="500000" placeholder="Incolla l’elenco immobili mantenendo le colonne: foglio, particella, subalterno e dati catastali."></textarea></label>
-                            <div class="crm-actions">
-                                <label class="crm-field"><span>Carica testo immobili (.txt, max 1 MB)</span><input type="file" accept=".txt,text/plain" wire:model="sisterEstateFile"></label>
-                                <button type="button" class="crm-btn secondary" wire:click="loadSisterTextFile('estates')" wire:loading.attr="disabled" wire:target="sisterEstateFile">Usa file immobili</button>
-                            </div>
-                            <p class="crm-muted">Le righe soppresse e i beni comuni non censibili vengono scartati. I file RTF non sono supportati.</p>
-                        </section>
-                        <section class="crm-panel" aria-label="Dati proprietari SISTER">
-                            <label class="crm-field"><span>Testo proprietari</span><textarea wire:model="sisterOwnersText" rows="5" maxlength="150000" placeholder="Incolla nominativo, codice fiscale o P. IVA, diritto e quota."></textarea></label>
-                            <div class="crm-actions">
-                                <label class="crm-field"><span>Carica testo proprietari (.txt, max 1 MB)</span><input type="file" accept=".txt,text/plain" wire:model="sisterOwnerFile"></label>
-                                <button type="button" class="crm-btn secondary" wire:click="loadSisterTextFile('owners')" wire:loading.attr="disabled" wire:target="sisterOwnerFile">Usa file proprietari</button>
-                            </div>
-                            <p class="crm-muted">Per collegare solo intestatari a un’unità già censita, seleziona qui l’unità. Se importi immobili, puoi lasciare vuoto il campo.</p>
-                            <label class="crm-field"><span>Unità già censita · facoltativa</span>
-                            <select wire:model="sisterTargetUnitId"><option value="">Nessuna unità selezionata</option>@foreach ($this->sisterTargetUnits as $unit)<option value="{{ $unit['id'] }}">{{ $unit['label'] }}</option>@endforeach</select>
-                            </label>
-                        </section>
-                        <p class="crm-muted">Prima di salvare vedrai le unità riconosciute, i proprietari collegati e gli aggiornamenti. Le intestazioni chiuse restano nello storico.</p>
-                        @if ($sisterError !== '')<p class="crm-form-error" role="alert">{{ $sisterError }}</p>@endif
-                        @error('sisterEstateFile')<p class="crm-form-error" role="alert">{{ $message }}</p>@enderror
-                        @error('sisterOwnerFile')<p class="crm-form-error" role="alert">{{ $message }}</p>@enderror
-
-                        @if ($sisterPreview)
-                            <section class="crm-panel" aria-label="Anteprima importazione">
-                                <h3>{{ $sisterPreview['detected'] }}</h3>
-                                <p>{{ $sisterPreview['context']['municipality'] }} · {{ count($sisterPreview['valid']) }} unità · {{ count($sisterPreview['owners']) }} {{ count($sisterPreview['owners']) === 1 ? 'proprietario' : 'proprietari' }}</p>
-                                @foreach ($sisterPreview['warnings'] as $warning)<p class="crm-info" role="status">{{ $warning }}</p>@endforeach
-                                @foreach ($sisterPreview['unresolvedCommunes'] as $commune)<p class="crm-form-error" role="alert">Comune non riconosciuto: {{ $commune['municipality'] }} ({{ $commune['province'] }}). Controlla provincia e codice catastale prima di importare.</p>@endforeach
-                                @if ($sisterPreview['ownerPreview'] !== [])
-                                    <div class="crm-table-wrap"><table><thead><tr><th>Nominativo</th><th>CF / P. IVA</th><th>Diritto</th><th>Quota</th><th>Esito</th></tr></thead><tbody>
-                                        @foreach ($sisterPreview['ownerPreview'] as $owner)
-                                            <tr><td>{{ $owner['name'] }}</td><td>{{ $owner['pid'] }}</td><td>{{ $owner['right'] ?: 'Da indicare per immobile' }}</td><td>{{ $owner['fraction'] ?: 'Vedi immobili' }}</td><td>{{ $owner['outcome'] }}
-                                                @if ($owner['outcome'] === 'Nome diverso')
-                                                    <small>Nome già salvato: {{ $owner['previousName'] }}</small>
-                                                    @if ($this->membership->role === 'admin')<label class="crm-check"><input type="checkbox" wire:model.live="sisterConfirmNameUpdates" value="{{ $owner['pid'] }}">Conferma aggiornamento nome</label>@else<small>Solo il Responsabile può aggiornare il nome.</small>@endif
-                                                @endif
-                                            </td></tr>
-                                        @endforeach
-                                    </tbody></table></div>
-                                @endif
-                                <div class="crm-table-wrap"><table><thead><tr><th>Comune</th><th>Unità</th><th>Categoria</th><th>Esito</th></tr></thead><tbody>
-                                    @foreach ($sisterPreview['rows'] as $row)<tr><td>{{ $row['context']['municipality'] }}</td><td>F. {{ $row['context']['sheet'] }} · P. {{ $row['context']['parcel'] }} · Sub. {{ $row['unit']['sub'] ?: '—' }}</td><td>{{ $row['unit']['category'] ?: '—' }}</td><td>{{ $row['status'] }}{{ $row['message'] !== '' ? ' · '.$row['message'] : '' }}</td></tr>@endforeach
-                                </tbody></table></div>
-                                @if ($sisterPreview['missingOwners'] !== [])
-                                    <fieldset class="crm-fieldset"><legend>Intestatari assenti dalla nuova visura</legend>
-                                        @foreach ($sisterPreview['missingOwners'] as $owner)
-                                            <div><strong>{{ $owner['name'] }} · {{ $owner['pid'] ?: 'CF non presente' }}</strong><p>Non compare più nella visura. Scegli se mantenere o chiudere l’intestazione.</p>
-                                                <label class="crm-check"><input type="radio" name="owner-decision-{{ $owner['key'] }}" wire:model.live="sisterOwnerDecisions.{{ $owner['key'] }}" value="maintain">Mantieni l’intestazione attuale</label>
-                                                <label class="crm-check"><input type="radio" name="owner-decision-{{ $owner['key'] }}" wire:model.live="sisterOwnerDecisions.{{ $owner['key'] }}" value="close">Chiudi e conserva nello storico</label>
-                                            </div>
-                                        @endforeach
-                                        <small>La chiusura riguarda solo questa unità. La data esatta del trasferimento resta da verificare se non indicata.</small>
-                                    </fieldset>
-                                @endif
-                                @if (collect($sisterPreview['rows'])->contains(fn ($row) => in_array($row['status'], ['Conflitto', 'Incompleto', 'Non riconosciuto'], true)))
-                                    <label class="crm-check"><input type="checkbox" wire:model.live="sisterSkipInvalid">Importa solo le righe valide, lasciando invariate quelle escluse.</label>
-                                @endif
-                            </section>
-                        @endif
-                        <div class="crm-actions">
-                            @if ($sisterPreview)
-                                <button type="button" class="crm-btn" wire:click="applySisterImport" wire:loading.attr="disabled" @disabled($sisterPreview['errors'] !== [] || $sisterPreview['unresolvedCommunes'] !== [])>Conferma e salva i collegamenti</button>
-                                <button type="submit" class="crm-btn secondary" wire:loading.attr="disabled">Aggiorna anteprima</button>
-                            @else
-                                <button type="submit" class="crm-btn" wire:loading.attr="disabled">Controlla il testo</button>
-                            @endif
-                            <button type="button" class="crm-btn secondary" wire:click="closeSisterImport">Annulla</button>
-                        </div>
-                    </form>
-                @endif
-            </div>
-        </dialog>
+        @include('gestionale.archive.sister-import')
     @endif
 
     @if ($historyUnitId !== null && $this->outcomeHistory)
         @php($historyEntry = $this->outcomeHistory['entry'])
         @php($historyRows = $this->outcomeHistory['rows'])
-        <dialog wire:ignore.self x-data x-init="$nextTick(() => { if ($el.isConnected && ! $el.open) $el.showModal() })" x-on:cancel.prevent="$wire.closeOutcomeHistory()" x-on:click="if ($event.target === $el) $wire.closeOutcomeHistory()" class="proto-dialog proto-dialog-wide reko-prototype" aria-labelledby="census-history-title">
+        <x-gestionale.crm-dialog title="Storico attività" label="Archivio catastale" wide :close="'$wire.closeOutcomeHistory()'">
             <div class="crm-form">
-                <div class="proto-dialog-heading"><div><p class="proto-eyebrow">Archivio catastale</p><h2 id="census-history-title">Storico catastale e attività</h2></div><button type="button" class="crm-dialog-close" wire:click="closeOutcomeHistory" aria-label="Chiudi">×</button></div>
                 <p>{{ $historyEntry['context']['municipality'] }} · F. {{ $historyEntry['context']['sheet'] }} · P. {{ $historyEntry['context']['parcel'] }} · Sub. {{ $historyEntry['unit']['sub'] ?: '—' }}</p>
                 <div class="crm-form-grid">
                     <label class="crm-field"><span>Esito</span><select wire:model.live="historyOutcomeFilter"><option value="">Tutti</option>@foreach (collect($historyRows)->pluck('outcome')->unique()->sort()->values() as $value)<option value="{{ $value }}">{{ $value }}</option>@endforeach</select></label>
@@ -1630,6 +1644,54 @@ new #[Layout('layouts::gestionale'), Title('Archivio catastale')] class extends 
                 @endif
                 <div class="crm-actions"><button type="button" class="crm-btn secondary" wire:click="closeOutcomeHistory">Chiudi</button></div>
             </div>
-        </dialog>
+        </x-gestionale.crm-dialog>
+    @endif
+    @if ($historyOwnerId !== null && $this->ownerHistory)
+        @php($owner = collect($this->results['people'])->firstWhere('owner.id', $historyOwnerId)['owner'] ?? null)
+        <x-gestionale.crm-dialog title="Storico catastale e recapiti" label="Archivio catastale" wide :close="'$wire.closeOwnerHistory()'">
+            <div class="crm-form">
+                <section>
+                    <h3>Storico catastale</h3>
+                    @forelse ($this->ownerHistory['holdings'] as $holding)
+                        <article class="census-history-row">
+                            <div class="crm-between"><strong>{{ $holding['kind'] ?: ($holding['current'] ? 'Intestazione attuale' : 'Variazione catastale') }}</strong><time>{{ $holding['start'] ?: 'Inizio non noto' }} → {{ $holding['end'] ?: 'in corso' }}</time></div>
+                            <p>{{ $holding['reference'] }} · {{ $holding['holding']['right'] ?? 'Diritto non indicato' }} {{ $holding['holding']['fraction'] ?? '' }} · {{ $holding['current'] ? 'Attuale' : 'Precedente' }}</p>
+                            <small>{{ $holding['owner'] }} · {{ $holding['source'] ?: 'Fonte non indicata' }} · {{ $holding['author'] }}</small>
+                            @if ($holding['reason'] !== '')<p>{{ $holding['reason'] }}</p>@endif
+                            @if ($holding['rawText'] !== '')<small>{{ $holding['rawText'] }}</small>@endif
+                            @if ($holding['exactDateUnknown'])<small>Data esatta della variazione da verificare.</small>@endif
+                        </article>
+                    @empty
+                        <p class="crm-muted">Nessuna variazione catastale registrata.</p>
+                    @endforelse
+                </section>
+                <section>
+                    <h3>Esiti dei contatti</h3>
+                    @forelse ($this->ownerHistory['outcomes'] as $outcome)
+                        <article class="census-history-row">
+                            <div class="crm-between"><strong>{{ $outcome['outcome'] }}</strong><time>{{ \App\Gestionale\Activities\ActivityPresentation::dateLabel($outcome['at'], true) }}</time></div>
+                            <p>{{ $outcome['type'] }} · {{ $outcome['author'] }} · {{ $outcome['owner'] }}</p>
+                            @if ($outcome['contactOperation'])<small>Sentito per {{ mb_strtolower($outcome['contactOperation']) }}</small>@endif
+                            @if ($outcome['note'] !== '')<p>{{ $outcome['note'] }}</p>@endif
+                        </article>
+                    @empty
+                        <p class="crm-muted">Nessun esito confermato.</p>
+                    @endforelse
+                </section>
+                <section>
+                    <h3>Variazioni dei recapiti</h3>
+                    @forelse ($this->ownerHistory['contacts'] as $change)
+                        <article class="census-history-row">
+                            <div class="crm-between"><strong>{{ \App\Gestionale\Activities\ActivityPresentation::dateLabel($change['at'] ?? null, true) }}</strong><small>{{ $change['author'] }}</small></div>
+                            <small>Prima</small><p class="census-contact-text">{{ ($change['before'] ?? '') ?: 'Recapito assente' }}</p>
+                            <small>Dopo</small><p class="census-contact-text">{{ ($change['after'] ?? '') ?: 'Recapito assente' }}</p>
+                        </article>
+                    @empty
+                        <p class="crm-muted">Nessuna variazione dei recapiti registrata.</p>
+                    @endforelse
+                </section>
+                <div class="crm-actions"><button type="button" class="crm-btn secondary" wire:click="closeOwnerHistory">Chiudi</button></div>
+            </div>
+        </x-gestionale.crm-dialog>
     @endif
 </div>

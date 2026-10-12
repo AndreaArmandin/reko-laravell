@@ -10,7 +10,6 @@ use App\Gestionale\Scouting\MapContext;
 use App\Gestionale\Scouting\ScoutingMap;
 use App\Gestionale\Questionnaire\Questionnaire;
 use App\Models\AgencyMembership;
-use App\Models\CadastralUnit;
 use App\Models\Property;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -18,7 +17,6 @@ use Livewire\Attributes\Computed;
 use Livewire\Attributes\Layout;
 use Livewire\Attributes\On;
 use Livewire\Attributes\Title;
-use Livewire\Attributes\Url;
 use Livewire\Component;
 
 /*
@@ -73,10 +71,6 @@ new #[Layout('layouts::gestionale'), Title('Immobile a portafoglio')] class exte
 
     public bool $confirm_duplicate = false;
 
-    /** Unità scelte in Trova ("Crea immobile a portafoglio"): precompilano il collegamento e il Comune. */
-    #[Url(as: 'unitIds')]
-    public array $cadastral_unit_ids = [];
-
     public function mount(?Property $property = null): void
     {
         if ($property?->exists) {
@@ -112,13 +106,6 @@ new #[Layout('layouts::gestionale'), Title('Immobile a portafoglio')] class exte
             $this->agent_user_id = $this->actor()->user_id;
             // Come il nuovo immobile dell'originale: vendita, appartamento, abitazione principale, non attivo.
             $this->features = ['operation' => 'Acquisto', 'typology' => 'Appartamento', 'purpose' => ['Abitazione principale']];
-            $ids = array_values(array_unique(array_slice(array_filter(array_map('intval', $this->cadastral_unit_ids)), 0, 100)));
-            if ($ids !== []) {
-                $ids = array_values(array_filter($ids, fn ($id) => PropertyLinks::inaccessibleUnits($this->actor(), [$id], null) === []));
-                $this->linkedUnits = array_map('strval', $ids);
-                $unit = CadastralUnit::query()->with('parcel.municipality')->whereIn('id', $ids)->first();
-                $this->city = (string) $unit?->parcel?->municipality?->name;
-            }
         }
     }
 

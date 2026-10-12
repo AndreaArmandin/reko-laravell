@@ -28,24 +28,36 @@ new class extends Component
     public bool $allowCreate = true;
 
     #[Locked]
+    public bool $personActions = false;
+
+    #[Locked]
+    public string $menuLabel = '';
+
+    #[Locked]
     public bool $hideEmptySummary = false;
 
     #[Locked]
     public bool $hideSummary = false;
+
+    /** L'archivio catastale ha un solo storico per unità (storico attività e intestazioni). */
+    public bool $hideHistory = false;
 
     #[Locked]
     public string $scope = '';
 
     public bool $historyOpen = false;
 
-    public function mount(array $context = [], bool $compact = false, bool $allowCreate = true, bool $hideEmptySummary = false, bool $hideSummary = false): void
+    public function mount(array $context = [], bool $compact = false, bool $allowCreate = true, bool $hideEmptySummary = false, bool $hideSummary = false, bool $hideHistory = false, bool $personActions = false, string $menuLabel = ''): void
     {
         $this->context = ActivityContext::normalize($context);
         $this->compact = $compact;
         $this->allowCreate = $allowCreate;
         $this->hideEmptySummary = $hideEmptySummary;
         $this->hideSummary = $hideSummary;
-        $this->scope = 'rec-'.substr(md5(json_encode($this->context)), 0, 10);
+        $this->hideHistory = $hideHistory;
+        $this->personActions = $personActions;
+        $this->menuLabel = trim($menuLabel);
+        $this->scope = ActivityContext::scope($this->context);
     }
 
     #[Computed]
@@ -85,7 +97,7 @@ new class extends Component
     }
 }; ?>
 
-<section class="crm-record-activities{{ $compact ? ' compact' : '' }}" aria-label="Attività collegate">
+<section class="crm-record-activities{{ $compact ? ' compact' : '' }}" aria-label="Attività collegate" data-person-actions="{{ $personActions ? 'true' : 'false' }}">
     @php
         $summary = \App\Gestionale\Activities\ActivityContext::summary($this->activities);
         $last = $summary['last'];
@@ -114,7 +126,7 @@ new class extends Component
         @if ($can)
             <button type="button" class="crm-btn" wire:click="$dispatch('activity-form', { scope: '{{ $scope }}', mode: 'activity' })"><x-gestionale.activity-icon name="plus" :size="17" />Registra attività</button>
         @endif
-        <button type="button" class="crm-btn secondary" wire:click="openHistory"><x-gestionale.activity-icon name="history" :size="17" />Storico attività</button>
+        @unless ($hideHistory)<button type="button" class="crm-btn secondary" wire:click="openHistory"><x-gestionale.activity-icon name="history" :size="17" />Storico attività</button>@endunless
     </div>
     <livewire:pages::gestionale.activities.dialogs :scope="$scope" :context="$context" :key="'dialogs-'.$scope" />
     @if ($historyOpen)
@@ -123,7 +135,7 @@ new class extends Component
                 <div><p class="proto-eyebrow">REKO Gestionale</p><h2 id="history-title-{{ $scope }}">Storico attività e promemoria</h2></div>
                 <button type="button" class="crm-dialog-close" aria-label="Chiudi" wire:click="closeHistory"><x-gestionale.activity-icon name="x" :size="16" /></button>
             </div>
-            <x-gestionale.activity-timeline :activities="$this->activities" :scope="$scope" order="recent" />
+            <x-gestionale.activity-timeline :activities="$this->activities" :scope="$scope" order="recent" :person-actions="$personActions" :menu-label="$menuLabel" />
         </dialog>
     @endif
 </section>

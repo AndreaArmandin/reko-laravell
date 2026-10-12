@@ -46,9 +46,7 @@ final class CensusImporter
      */
     public function preview(AgencyMembership $actor, array $input): array
     {
-        if (! $actor->allows('sister.import')) {
-            throw new CommandRejected('Permesso “Importa da Sister” non assegnato.', 403);
-        }
+        self::authorize($actor, $input);
 
         $this->memo = [];
         $in = $this->resolve($actor, $input);
@@ -174,14 +172,16 @@ final class CensusImporter
                 if (isset($seen[$key])) {
                     $repeated = &$rows[$seen[$key]];
                     if ($repeated['status'] !== 'Conflitto' && $row['status'] !== 'Conflitto' && self::sameUnit($repeated['unit'], $unit) && $repeated['unit']['state'] === $unit['state']) {
-                        if ($repeated['unit']['subjectHolding'] && $unit['subjectHolding']) {
-                            $repeated['unit']['subjectHolding'] = Holding::combine($repeated['unit']['subjectHolding'], $unit['subjectHolding']);
-                        }
                         $row['status'] = 'Identico';
                         $row['message'] = 'Riga ripetuta nel blocco: unità conteggiata una volta sola, tutti i diritti e le quote sono conservati.';
-                        if ($repeated['unit']['subjectHolding'] && Holding::conflictingShares($repeated['unit']['subjectHolding'])) {
-                            $row['status'] = $repeated['status'] = 'Conflitto';
-                            $row['message'] = $repeated['message'] = 'Quote differenti per lo stesso diritto sulla stessa unità: verifica la fonte.';
+                        if ($repeated['unit']['subjectHolding'] && $unit['subjectHolding']) {
+                            $combined = Holding::combine($repeated['unit']['subjectHolding'], $unit['subjectHolding']);
+                            // Call 07/10, punto 18: stesso CF sulla stessa unità = un solo legame; con quote incoerenti si tiene il primo.
+                            if (Holding::conflictingShares($combined)) {
+                                $row['message'] = 'Riga ripetuta con quote differenti: tenuto un solo legame per questo codice fiscale (il primo).';
+                            } else {
+                                $repeated['unit']['subjectHolding'] = $combined;
+                            }
                         }
                     } else {
                         $row['status'] = $repeated['status'] = 'Conflitto';
@@ -271,8 +271,9 @@ final class CensusImporter
                     $r['status'] = 'Aggiornamento';
                     $r['message'] = 'Ulteriori diritti dello stesso intestatario: saranno aggiunti conservando tutte le quote e lo storico.';
                 } else {
-                    $r['status'] = 'Conflitto';
-                    $r['message'] = 'Diritto o quota già presenti differiscono: usa Aggiorna proprietari per una sostituzione esplicita con storico.';
+                    // Call 07/10, punto 18: diritto e quota non sono fondamentali, il legame CF-unità esiste già.
+                    $r['status'] = 'Identico';
+                    $r['message'] = 'Codice fiscale già collegato a questa unità con diritto o quota differenti: mantenuto il legame esistente.';
                 }
                 unset($r);
             }
@@ -295,9 +296,7 @@ final class CensusImporter
      */
     public function apply(AgencyMembership $actor, array $input): array
     {
-        if (! $actor->allows('sister.import')) {
-            throw new CommandRejected('Permesso “Importa da Sister” non assegnato.', 403);
-        }
+        self::authorize($actor, $input);
         $token = (string) ($input['token'] ?? '');
         if ($token !== '') {
             if (strlen($token) > 100) {
@@ -309,6 +308,42 @@ final class CensusImporter
         }
 
         return DB::transaction(fn () => $this->write($actor, $input));
+    }
+
+    /**
+     * engine.ts sister.import + census.owners.replace: serve il permesso “Importa da Sister”; senza permesso
+     * lo scout può solo incollare gli intestatari di un'unità già censita in una particella a lui assegnata
+     * (nessuna nuova particella o unità).
+     */
+    public static function authorize(AgencyMembership $actor, array $input = []): void
+    {
+        if ($actor->allows('sister.import') || self::ownersOnlyForScout($actor, $input)) {
+            return;
+        }
+        throw new CommandRejected('Permesso “Importa da Sister” non assegnato.', 403);
+    }
+
+    public static function scoutMayReplaceOwners(AgencyMembership $actor, int $unitId): bool
+    {
+        if (! $actor->isActive() || $actor->role !== 'scout' || ! CensusScope::unitVisible($actor, $unitId)) {
+            return false;
+        }
+        $parcelId = (int) DB::table('cadastral_units')->where('id', $unitId)->value('parcel_id');
+
+        return $parcelId > 0 && CensusScope::parcelOperator((int) $actor->agency_id, $parcelId) === (int) $actor->user_id;
+    }
+
+    private static function ownersOnlyForScout(AgencyMembership $actor, array $input): bool
+    {
+        $unitId = (int) ($input['targetUnitId'] ?? 0);
+        $text = $input['sourceText'] ?? null;
+        if ($unitId <= 0 || ! is_string($text) || ! self::scoutMayReplaceOwners($actor, $unitId)) {
+            return false;
+        }
+        $split = SisterText::split($text);
+        $estateRows = array_filter(preg_split('/\r?\n/', $split['estates']), fn ($r) => trim($r) !== '' && ! preg_match('/^(?:Situazione|Sezione)\b/iu', trim($r)));
+
+        return $split['owners'] !== '' && $estateRows === [] && ! $split['subjectRows'];
     }
 
     /** @return array<string,mixed> */
@@ -568,7 +603,8 @@ final class CensusImporter
                 return;
             }
             if (! Holding::isExtension($old, $holding) || ! $confirmUpdates) {
-                throw new CommandRejected('Titolarità già presente con diritto o quota differenti: usa “Aggiorna proprietari” sulla singola unità per conservare lo storico.');
+                // Call 07/10, punto 18: un solo legame per CF e unità, qualunque siano diritto e quota.
+                return;
             }
             self::close($current, $date !== '' ? $date : $now->toDateString(), 'Completamento diritti da Sister', 'Correzione');
         }

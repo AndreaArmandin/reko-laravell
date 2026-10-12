@@ -11,6 +11,7 @@ use App\Gestionale\Livewire\HandlesCommands;
 use App\Models\Activity;
 use App\Models\User;
 use Illuminate\Support\Str;
+use Spatie\GoogleCalendar\Event;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Locked;
 use Livewire\Attributes\On;
@@ -266,6 +267,20 @@ new class extends Component
             }
             if ($this->withReminder) {
                 $input['reminder'] = ['title' => trim($this->reminderTitle), 'due_at' => $this->reminderAt];
+
+                $calendarId = trim((string) auth()->user()->google_calendar_id);
+                if ($calendarId !== '') {
+                    try {
+                        Event::create([
+                            'name' => trim($this->reminderTitle),
+                            'description' => 'Attività: '.$input['title'].' - Esito: '.$input['outcome'].' - Note: '.$input['notes'],
+                            'startDateTime' => $reminderAt,
+                            'endDateTime' => $reminderAt->copy()->addHour(),
+                        ], $calendarId);
+                    } catch (\Throwable $e) {
+                        throw new CommandRejected('Impossibile creare l’evento su Google Calendar: '.$e->getMessage());
+                    }
+                }
             }
 
             return app(SaveActivity::class)->handle($actor, $stored, $input);
@@ -306,7 +321,7 @@ new class extends Component
             $banner = $this->banner;
             $heading = $reminder ? ($activityId ? 'Modifica promemoria' : 'Nuovo promemoria') : ($confirmed ? 'Correggi attività' : ($recording ? 'Registra attività' : 'Modifica attività programmata'));
         @endphp
-        <dialog class="proto-dialog reko-prototype" wire:key="dialog-form-{{ $token }}" aria-labelledby="activity-dialog-title" x-data x-init="$el.showModal()" x-on:cancel.prevent="$wire.close()" x-on:click="if ($event.target === $el) $wire.close()">
+        <dialog wire:ignore.self class="proto-dialog reko-prototype" wire:key="dialog-form-{{ $token }}" aria-labelledby="activity-dialog-title" x-data x-init="$nextTick(() => { if ($el.isConnected && ! $el.open) $el.showModal() })" x-on:cancel.prevent="$wire.close()" x-on:click="if ($event.target === $el) $wire.close()">
             <div class="proto-dialog-heading">
                 <div><p class="proto-eyebrow">REKO Gestionale</p><h2 id="activity-dialog-title">{{ $heading }}</h2></div>
                 <button type="button" class="crm-dialog-close" aria-label="Chiudi" wire:click="close"><x-gestionale.activity-icon name="x" :size="16" /></button>
@@ -365,7 +380,7 @@ new class extends Component
         </dialog>
     @elseif ($dialog === 'response')
         @php $stored = $this->stored; @endphp
-        <dialog class="proto-dialog reko-prototype" wire:key="dialog-response-{{ $activityId }}-{{ $response }}" aria-labelledby="activity-dialog-title" x-data x-init="$el.showModal()" x-on:cancel.prevent="$wire.close()" x-on:click="if ($event.target === $el) $wire.close()">
+        <dialog wire:ignore.self class="proto-dialog reko-prototype" wire:key="dialog-response-{{ $activityId }}-{{ $response }}" aria-labelledby="activity-dialog-title" x-data x-init="$nextTick(() => { if ($el.isConnected && ! $el.open) $el.showModal() })" x-on:cancel.prevent="$wire.close()" x-on:click="if ($event.target === $el) $wire.close()">
             <div class="proto-dialog-heading">
                 <div><p class="proto-eyebrow">Simulazione REKO</p><h2 id="activity-dialog-title">{{ \App\Gestionale\Activities\ActivityCatalog::responseLabel($response) }}</h2></div>
                 <button type="button" class="crm-dialog-close" aria-label="Chiudi" wire:click="close"><x-gestionale.activity-icon name="x" :size="16" /></button>

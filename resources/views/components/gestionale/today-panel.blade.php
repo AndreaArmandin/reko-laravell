@@ -3,13 +3,12 @@
     // today-panel.tsx: le code di lavoro del ruolo (lib/crm/today-work.ts).
     $work = \App\Gestionale\Today\TodayWork::work($membership);
     $role = $work['role'];
-    $dayLabel = \Carbon\CarbonImmutable::parse($work['today'])->locale('it')->translatedFormat('j M Y');
     $list = function (array $rows, string $empty) {
         $html = '';
         foreach ($rows as $row) {
             $html .= '<a class="crm-next-action" href="'.e($row['href']).'" wire:navigate><span>'.e($row['title'])
                 .(! empty($row['detail']) ? '<small>'.e($row['detail']).'</small>' : '')
-                .(! empty($row['dueAt']) ? '<small>'.e($row['dueAt']->locale('it')->translatedFormat('j M Y, H:i')).'</small>' : '')
+                .(! empty($row['dueAt']) ? '<small>'.e(\App\Gestionale\Today\Ui::dateLabel($row['dueAt'], true)).'</small>' : '')
                 .'</span><span aria-hidden="true">→</span></a>';
         }
 
@@ -17,7 +16,7 @@
     };
 @endphp
 <section aria-label="Oggi, azioni del tuo ruolo" @if ($readonly) inert @endif>
-    <header class="crm-between crm-today-heading"><h1>Oggi</h1><p>{{ $dayLabel }}</p></header>
+    <header class="crm-between crm-today-heading"><h1>Oggi</h1><p>{{ \App\Gestionale\Today\Ui::dateLabel($work['today']) }}</p></header>
     <div class="crm-form-grid">
         @if ($role === 'admin')
             <section class="crm-panel"><h2>Obiettivi</h2><p>Segui l’avanzamento degli obiettivi del periodo e il lavoro della squadra.</p><a class="crm-btn" href="{{ route('gestionale.goals.index') }}" wire:navigate>Apri gli obiettivi</a></section>

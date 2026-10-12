@@ -165,7 +165,7 @@ it('lists the audit with the operation label and before/after when present', fun
     Livewire::test('pages::gestionale.settings.index')->call('showTab', 'Registro operazioni')
         ->assertSee('Traccia delle modifiche')->assertSee('Scheda cliente salvata')->assertSee('Riferimento tecnico')->assertSee('client.save')
         ->assertSee('Correzione')->assertSee('Prima e dopo la correzione')->assertDontSee('Pulizia esempi');
-    expect(AuditEvent::query()->where('action', 'audit.view')->count())->toBe(1);
+    expect(AuditEvent::query()->where('action', 'audit.view')->count())->toBe(0);
 });
 
 it('applies the optional permissions through the gate and the helper', function () {

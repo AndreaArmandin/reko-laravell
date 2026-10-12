@@ -1,4 +1,4 @@
-@props(['activities', 'scope' => 'agenda', 'order' => 'recent'])
+@props(['activities', 'scope' => 'agenda', 'order' => 'recent', 'keyPrefix' => null, 'personActions' => false, 'menuLabel' => null])
 @php
     // common.tsx Timeline: righe con stato, esito, aggiornamenti e azioni. Le azioni aprono le finestre
     // del componente "dialogs" con lo stesso scope (vedi x-gestionale.record-activities).
@@ -25,7 +25,7 @@
                 $responses = $a->events->where('kind', 'response');
                 $open = ! $done && $a->outcome_confirmed_at === null && $a->status !== 'Annullata';
             @endphp
-            <article wire:key="activity-{{ $scope }}-{{ $a->id }}">
+            <article wire:key="activity-{{ $keyPrefix ? $keyPrefix.'-' : '' }}{{ $scope }}-{{ $a->id }}">
                 <span class="crm-timeline-icon {{ $done ? 'done' : '' }}"><x-gestionale.activity-icon :name="$done ? 'check' : 'calendar-days'" :size="16" /></span>
                 <div class="crm-grow">
                     <div class="crm-timeline-heading"><strong>{{ $a->subject }}</strong><time datetime="{{ $when?->toIso8601String() }}">{{ \App\Gestionale\Activities\ActivityPresentation::dateLabel($when, true) }}</time></div>
@@ -53,7 +53,7 @@
                             <button type="button" class="crm-btn" wire:click="{{ $a->kind === 'Promemoria' ? $dispatch('activity-done', $a->id) : $dispatch('activity-form', $a->id, ', done: true') }}">{{ $a->kind === 'Telefonata' ? 'Registra esito' : 'Segna come fatta' }}</button>
                         @endif
                         <details class="crm-row-menu" wire:ignore.self>
-                            <summary aria-label="Altre azioni per {{ $a->subject }}">⋯ <span>Azioni</span></summary>
+                            <summary aria-label="{{ $menuLabel ?: 'Altre azioni per '.$a->subject }}">⋯ <span>Azioni</span></summary>
                             <div class="crm-context-actions">
                                 @if ($a->owner_contact_id)<button type="button" onclick="{{ $go(route('gestionale.archive.index', ['owner' => $a->owner_contact_id])) }}">Apri proprietario</button>@endif
                                 @if ($a->contact_id)<button type="button" onclick="{{ $go(route('gestionale.clients.show', $a->contact_id)) }}">Cliente</button>@endif

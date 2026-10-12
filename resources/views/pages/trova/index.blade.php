@@ -632,6 +632,55 @@ new #[Layout('layouts::trova')] class extends Component {
             : 'La particella era già presente nell’Archivio catastale.');
     }
 
+    /**
+     * Call 07/10 (Trova, punto 2): “Aggiungi tutti” i risultati dell’intera ricerca all’Archivio catastale, mai al
+     * portafoglio. Si scorrono le pagine da 25 particelle e ogni pagina è una acquisizione separata (catalog.acquire).
+     */
+    public function addAllResultsToCensus(): void
+    {
+        $membership = app(CurrentAgency::class)->membership();
+        if ($membership === null || ! $membership->isActive() || ! in_array($membership->role, ['admin', 'scout'], true)) {
+            $this->dispatch('crm-notice', type: 'error', text: 'Questa funzione è disponibile per Responsabile e Agente acquisizioni.');
+
+            return;
+        }
+        if ($this->query === null) {
+            $this->dispatch('crm-notice', type: 'error', text: 'Il risultato non è più disponibile. Aggiorna la ricerca.');
+
+            return;
+        }
+        $units = $parcelsDone = 0;
+        try {
+            $page = 1;
+            do {
+                $result = app(CatalogSearch::class)->search([...$this->query, 'sort' => $this->sort, 'page' => $page, 'pageSize' => 25]);
+                $ids = collect($result->rows)->pluck('parcel_id')->filter()->map(fn ($id) => (int) $id)->unique()->values()->all();
+                $parcels = Parcel::query()->with('municipality')->whereIn('id', $ids)->where('cadastral_kind', 'F')->get()
+                    ->filter(fn ($parcel) => $parcel->municipality?->cadastral_code === ($this->query['code'] ?? null))
+                    ->map(fn ($parcel) => ['code' => $parcel->municipality->cadastral_code, 'section' => (string) $parcel->section,
+                        'sheet' => (string) $parcel->sheet, 'parcel' => (string) $parcel->number])->values()->all();
+                if ($parcels !== []) {
+                    $done = app(AcquireCatalogParcels::class)->handle($membership, ['parcels' => $parcels, 'token' => (string) Str::uuid()]);
+                    $units += (int) ($done['units'] ?? 0);
+                    $parcelsDone += count($parcels);
+                }
+                $page++;
+            } while ($page <= $result->pages());
+        } catch (CommandRejected $e) {
+            $this->dispatch('crm-notice', type: 'error', text: ($parcelsDone > 0 ? "{$parcelsDone} particelle già acquisite. " : '').$e->getMessage());
+
+            return;
+        } catch (\App\Trova\SearchException $e) {
+            $this->dispatch('crm-notice', type: 'error', text: $e->getMessage());
+
+            return;
+        }
+
+        $this->dispatch('crm-notice', type: 'success', text: $units > 0
+            ? "{$parcelsDone} particelle della ricerca acquisite nell’Archivio catastale, senza creare immobili a portafoglio."
+            : 'Le particelle della ricerca erano già presenti nell’Archivio catastale.');
+    }
+
     public function updatedSort(): void
     {
         $this->sort = in_array($this->sort, ['surface-desc', 'surface-asc'], true) ? $this->sort : 'surface-desc';
@@ -996,6 +1045,10 @@ new #[Layout('layouts::trova')] class extends Component {
                         <h3>Risultati della ricerca</h3>
                         <div class="flex flex-wrap gap-3">
                             @if ($error === null)
+                                @php($bulkMembership = app(\App\Gestionale\CurrentAgency::class)->membership())
+                                @if ($bulkMembership && in_array($bulkMembership->role, ['admin', 'scout'], true) && ($bulkMembership->role === 'admin' || (($bulkMembership->catalog_package['enabled'] ?? false) === true)))
+                                    <button class="crm-btn secondary" type="button" wire:click="addAllResultsToCensus" wire:loading.attr="disabled">Aggiungi tutti all’Archivio catastale</button>
+                                @endif
                                 <details class="trova-save-search">
                                     <summary class="crm-btn secondary">Salva ricerca con un nome</summary>
                                     <form wire:submit="saveSearch" class="trova-save-search-form">

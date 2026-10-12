@@ -17,15 +17,21 @@ use Livewire\Attributes\Url;
 use Livewire\Component;
 
 /*
- * Nuova richiesta (quick-request-form.tsx): cliente esistente o nuovo, contratto, tipologia, zona,
- * budget e dettagli facoltativi. Una sola richiesta per cliente. Tutte le regole sono nell'Action
- * CreatePropertyRequest (request.create) e in QuickRequestCriteria.
+ * Richiesta rapida (quick-request-form.tsx): nell'originale è una finestra ampia (DemoDialog) aperta sopra la lista
+ * Richieste o la scheda cliente; qui è la stessa finestra su una route (richieste/nuova, ?cliente=id).
+ * Cliente esistente o nuovo, contratto, tipologia, zona, budget e dettagli facoltativi. Una sola richiesta per cliente.
+ * Tutte le regole sono nell'Action CreatePropertyRequest (request.create) e in QuickRequestCriteria.
  */
 new #[Layout('layouts::gestionale'), Title('Nuova richiesta')] class extends Component {
     use HandlesCommands;
 
     #[Url(as: 'cliente')]
     public ?int $contactId = null;
+
+    /** Il cliente con cui la finestra è stata aperta (initialId): titolo e destinazione alla chiusura. */
+    public ?int $originId = null;
+
+    public string $heading = 'Nuova richiesta';
 
     public string $clientName = '';
 
@@ -47,8 +53,6 @@ new #[Layout('layouts::gestionale'), Title('Nuova richiesta')] class extends Com
 
     public string $notes = '';
 
-    public bool $showDetails = false;
-
     /** @var array<string, mixed> raw detail fields keyed by question id */
     public array $details = [];
 
@@ -61,6 +65,10 @@ new #[Layout('layouts::gestionale'), Title('Nuova richiesta')] class extends Com
             $contact = Contact::query()->visibleTo($this->actor())->whereHas('clientProfile')->find($this->contactId);
             $this->contactId = $contact?->id;
             $this->clientName = (string) $contact?->display_name;
+            if ($contact) {
+                $this->originId = $contact->id;
+                $this->heading = 'Nuova richiesta · '.$contact->display_name;
+            }
         }
         $this->idempotencyKey = (string) str()->uuid();
     }
@@ -100,7 +108,7 @@ new #[Layout('layouts::gestionale'), Title('Nuova richiesta')] class extends Com
         return $this->contactId ? Contact::query()->visibleTo($this->actor())->find($this->contactId) : null;
     }
 
-    /** Suggestions from 2 characters, at most 6, among the clients the operator can see. */
+    /** client-entry.tsx: suggerimenti da 2 caratteri, al massimo 6, tra i clienti che l'operatore vede. */
     #[Computed]
     public function suggestions()
     {
@@ -112,7 +120,7 @@ new #[Layout('layouts::gestionale'), Title('Nuova richiesta')] class extends Com
 
         return Contact::query()->visibleTo($this->actor())->whereHas('clientProfile', fn ($p) => $p->activeRecords())
             ->where(fn ($q) => $q->where('display_name', 'ilike', $like)->orWhereHas('channels', fn ($c) => $c->where('value', 'ilike', $like)))
-            ->orderBy('display_name')->limit(6)->get();
+            ->with(['primaryPhone', 'primaryEmail'])->orderBy('display_name')->limit(6)->get();
     }
 
     /** Hints for a new client: existing contacts or homonyms (names only of visible clients). */
@@ -126,10 +134,25 @@ new #[Layout('layouts::gestionale'), Title('Nuova richiesta')] class extends Com
         return ClientMatcher::matches($this->clientName, $this->phone, $this->email);
     }
 
+    /** inferredClient: un solo omonimo e nessun recapito digitato, la richiesta si collega a quella scheda. */
+    #[Computed]
+    public function inferred(): ?Contact
+    {
+        if ($this->contactId || trim($this->phone) !== '' || trim($this->email) !== '') {
+            return null;
+        }
+        $named = $this->matches->filter(fn ($m) => $m->name);
+
+        return $named->count() === 1 && auth()->user()->can('update', $named->first()->contact) ? $named->first()->contact : null;
+    }
+
+    /** existingRequests() del cliente scelto o dedotto. */
     #[Computed]
     public function existing(): ?PropertyRequest
     {
-        return $this->selected ? SavePropertyRequest::existingFor($this->selected)->first() : null;
+        $client = $this->selected ?? $this->inferred;
+
+        return $client ? SavePropertyRequest::existingFor($client)->first() : null;
     }
 
     #[Computed]
@@ -158,28 +181,56 @@ new #[Layout('layouts::gestionale'), Title('Nuova richiesta')] class extends Com
         $this->contactId = $contact->id;
         $this->clientName = $contact->display_name;
         $this->reset('phone', 'email', 'confirmHomonym');
+        $this->resetErrorBag();
     }
 
-    public function clearClient(): void
-    {
-        $this->reset('contactId', 'clientName', 'phone', 'email', 'confirmHomonym');
-    }
-
-    /** A name matching exactly one visible client, with no contact typed, links that client. */
+    /** onType: scrivere un altro nome scollega il cliente scelto. */
     public function updatedClientName(): void
     {
-        if ($this->contactId || $this->phone !== '' || $this->email !== '') {
-            return;
+        $this->resetErrorBag();
+        $this->confirmHomonym = false;
+        if ($this->contactId && trim($this->clientName) !== $this->selected?->display_name) {
+            $this->contactId = null;
         }
-        $named = $this->matches->filter(fn ($m) => $m->name);
-        if ($named->count() === 1 && auth()->user()->can('update', $named->first()->contact)) {
-            $this->choose($named->first()->contact->id);
+    }
+
+    /** updateDetail(): cambiando la finalità, una tipologia non più compatibile torna da scegliere. */
+    public function updatedDetails(mixed $value, string $key): void
+    {
+        if ($key === 'purpose' && Questionnaire::hasAnswer($value)
+            && ! in_array($this->typology, Questionnaire::typologies(['purpose' => $value]), true)) {
+            $this->typology = '';
         }
+    }
+
+    /** «Lascia da definire»: toglie la risposta del dettaglio. */
+    public function clearDetail(string $id): void
+    {
+        unset($this->details[$id]);
+    }
+
+    /** RangeInput: il campo number invia decimali con il punto; «350.000» resta un importo con il separatore delle migliaia. */
+    private function amount(string $value): int|float|string|null
+    {
+        $value = trim($value);
+        if ($value === '') {
+            return null;
+        }
+        $value = preg_match('/^\d+\.\d{1,2}$/', $value) ? $value : str_replace([' ', '.', ','], ['', '', '.'], $value);
+
+        return is_numeric($value) ? $value + 0 : $value;
+    }
+
+    /** Chiudere la finestra riporta alla scheda cliente da cui si è partiti, altrimenti alla lista Richieste. */
+    public function close()
+    {
+        return $this->originId
+            ? $this->redirectRoute('gestionale.clients.show', $this->originId, navigate: true)
+            : $this->redirectRoute('gestionale.requests.index', navigate: true);
     }
 
     public function save()
     {
-        $num = fn (string $v) => ($v = str_replace([' ', '.', ','], ['', '', '.'], trim($v))) === '' ? null : (is_numeric($v) ? $v + 0 : $v);
         $details = [];
         foreach ($this->detailQuestions as $question) {
             $value = AnswerPresenter::fromField($question, $this->details[$question['id']] ?? null);
@@ -189,81 +240,116 @@ new #[Layout('layouts::gestionale'), Title('Nuova richiesta')] class extends Com
         }
         $quick = array_filter([
             'operation' => $this->operation, 'typology' => $this->typology, 'zone' => $this->zone,
-            'budgetMin' => $num($this->budgetMin), 'budgetMax' => $num($this->budgetMax),
+            'budgetMin' => $this->amount($this->budgetMin), 'budgetMax' => $this->amount($this->budgetMax),
             'notes' => trim($this->notes) === '' ? null : $this->notes,
             'details' => $details ?: null,
         ], fn ($v) => $v !== null);
 
         $input = ['quick' => $quick, 'idempotency_key' => $this->idempotencyKey];
-        if ($this->contactId) {
-            $input['contact_id'] = $this->contactId;
+        $resolved = $this->selected ?? $this->inferred;
+        if ($resolved) {
+            $input['contact_id'] = $resolved->id;
         } else {
             $input['client'] = ['name' => $this->clientName, 'phone' => $this->phone, 'email' => $this->email];
             $input['confirm_homonym'] = $this->confirmHomonym;
         }
 
-        $request = $this->command(fn () => app(CreatePropertyRequest::class)->handle($this->actor(), $input),
-            trim($this->notes) !== '' || $details ? 'Richiesta salvata con note e dettagli.' : 'Richiesta salvata.');
+        $request = $this->command(fn () => app(CreatePropertyRequest::class)->handle($this->actor(), $input), 'Richiesta salvata con note e dettagli.');
         if ($request) {
-            return $this->redirectRoute('gestionale.requests.show', $request, navigate: true);
+            return $this->redirectRoute('gestionale.requests.index', navigate: true);
         }
         $this->idempotencyKey = (string) str()->uuid();
     }
 }; ?>
 
-@php($zonesConfigured = $this->questionnaire->zones())
-<div class="crm-form-page crm-form-page--request">
-    <a class="crm-back" href="{{ route('gestionale.requests.index') }}" wire:navigate>← Richieste</a>
-    <div class="crm-page-head"><div><p class="proto-eyebrow">REKO Gestionale · Richieste</p><h1>Nuova richiesta{{ $this->selected ? ' · '.$this->selected->display_name : '' }}</h1><p class="crm-muted">Registra la ricerca del cliente. Puoi completare il profilo guidato anche in seguito.</p></div></div>
-
-    <form wire:submit="save" class="crm-form">
-        @foreach (['command', 'client', 'contact_id', 'quick', 'value'] as $errorKey)
-            @error($errorKey)<p class="crm-error" role="alert">{{ $message }}</p>@enderror
-        @endforeach
-
-        <section class="crm-panel">
-            <div class="crm-section-head"><h2>Cliente</h2>@if ($this->selected)<button type="button" class="crm-btn secondary" wire:click="clearClient">Cambia cliente</button>@endif</div>
-            @if ($this->selected)
-                <div class="crm-record-row"><x-gestionale.crm-avatar :name="$this->selected->display_name" :id="$this->selected->id"/><span class="crm-grow"><strong>{{ $this->selected->display_name }}</strong><small>Cliente già in archivio · nessun doppione</small></span></div>
-                @if ($this->existing)<p class="crm-contact-warning">Il cliente ha già una richiesta. @can('view', $this->existing)<a class="crm-link" href="{{ route('gestionale.requests.show', $this->existing) }}" wire:navigate>Apri {{ $this->existing->title }}</a>@endcan</p>@endif
-            @else
-                <label class="crm-field"><span>Nome e cognome</span><input wire:model.live.debounce.300ms="clientName" placeholder="Cerca un cliente o scrivi il nome di uno nuovo" autocomplete="off"></label>
-                @if ($this->suggestions->isNotEmpty())<div class="crm-client-suggestions">@foreach ($this->suggestions as $s)<button type="button" wire:click="choose({{ $s->id }})" wire:key="s-{{ $s->id }}">{{ $s->display_name }}</button>@endforeach</div>@endif
-                <div class="crm-form-grid">
-                    <label class="crm-field"><span>Cellulare</span><input wire:model.live.debounce.400ms="phone" type="tel" maxlength="60" autocomplete="off" placeholder="+39 000 000 0000"></label>
-                    <label class="crm-field"><span>Email</span><input wire:model.live.debounce.400ms="email" type="email" maxlength="160" autocomplete="off" placeholder="cliente@example.invalid"></label>
-                </div>
-                @foreach ($this->matches as $m)
-                    @if ($m->phone || $m->email)
-                        <p class="crm-contact-warning">@can('update', $m->contact)Recapito già presente: <button class="crm-link" type="button" wire:click="choose({{ $m->contact->id }})">Usa {{ $m->contact->display_name }}</button>@else Recapito già presente in un’altra scheda dell’agenzia: verifica con il Responsabile.@endcan</p>
-                    @endif
-                @endforeach
-                @if ($this->matches->contains(fn ($m) => $m->name && ! $m->phone && ! $m->email))<label class="crm-check"><input type="checkbox" wire:model="confirmHomonym">Ho verificato che è una persona diversa dal cliente omonimo.</label>@endif
-            @endif
-        </section>
-
-        <section class="crm-panel">
-            <h2>Esigenze principali</h2>
-            <div class="crm-form" style="margin-top:16px">
-                <fieldset class="crm-fieldset"><legend>Acquisto o locazione</legend><div class="crm-filter-chips" role="group" aria-label="Acquisto o locazione">
-                    @foreach (['Acquisto', 'Locazione'] as $value)<button type="button" class="crm-chip" aria-pressed="{{ $operation === $value ? 'true' : 'false' }}" wire:click="$set('operation', '{{ $value }}')">{{ $value }}</button>@endforeach
-                </div></fieldset>
-                <label class="crm-field"><span>Tipologia</span><select wire:model="typology"><option value="">Scegli la tipologia</option>@foreach ($this->typologies as $t)<option value="{{ $t }}">{{ $t }}</option>@endforeach</select></label>
-                <label class="crm-field"><span>Zona o Comune</span><input wire:model.live.debounce.400ms="zone" list="gestionale-zones" maxlength="200"><datalist id="gestionale-zones">@foreach ($zonesConfigured as $z)<option value="{{ $z }}"></option>@endforeach</datalist></label>
-                @if (trim($zone) !== '' && ! collect($zonesConfigured)->contains(fn ($z) => mb_strtolower(trim($z)) === mb_strtolower(trim($zone)))<p class="crm-muted">La zona sarà annotata nelle note della richiesta, da precisare nella profilazione.</p>@endif
-                <div class="crm-form-grid"><label class="crm-field"><span>{{ $operation === 'Locazione' ? 'Canone · €/mese · Da' : 'Budget · € · Da' }}</span><input wire:model="budgetMin" inputmode="decimal"></label><label class="crm-field"><span>{{ $operation === 'Locazione' ? 'Canone · €/mese · A' : 'Budget · € · A' }}</span><input wire:model="budgetMax" inputmode="decimal"></label></div>
-                <label class="crm-field"><span>Note libere</span><textarea wire:model="notes" rows="3" maxlength="4000"></textarea></label>
-                <button class="crm-link" type="button" wire:click="$toggle('showDetails')">{{ $showDetails ? '⌄ Nascondi dettagli' : '› Aggiungi dettagli' }}</button>
-                @if ($showDetails)
-                    @foreach ($this->detailQuestions as $question)
-                        <fieldset class="crm-fieldset" wire:key="d-{{ $question['id'] }}"><legend>{{ App\Gestionale\Questionnaire\AnswerPresenter::questionLabel($question) }}</legend>
-                            <x-gestionale.answer-input :question="$question" :options="$this->questionnaire->options($question, $this->purposeCriteria)" model="details.{{ $question['id'] }}" />
-                            <small>Lascia vuoto se da definire.</small>
-                        </fieldset>
-                    @endforeach
+@php
+    $zonesConfigured = $this->questionnaire->zones();
+    $zoneText = trim($zone);
+    $zoneConfigured = collect($zonesConfigured)->contains(fn ($z) => mb_strtolower(trim($z)) === mb_strtolower($zoneText));
+    $notesMax = $zoneText !== '' && ! $zoneConfigured ? max(0, 4000 - mb_strlen('Zona richiesta: '.$zoneText.' (da precisare nella profilazione).') - 2) : 4000;
+    $suggestions = $this->suggestions;
+    $count = $suggestions->count();
+    $resolved = $this->selected ?? $this->inferred;
+    $duplicate = $this->matches->first(fn ($m) => $m->phone || $m->email);
+    $homonym = $this->matches->contains(fn ($m) => $m->name);
+    $fieldError = fn ($key) => $errors->first($key);
+@endphp
+<div>
+    <x-gestionale.crm-dialog :title="$heading" :wide="true" :close="'$wire.close()'">
+        <form wire:submit="save" class="crm-form crm-quick-request-form">
+            <div class="crm-client-entry" x-data="{ open: false, active: -1 }">
+                <label class="crm-field" for="quick-client"><span>Cliente</span>
+                    <input id="quick-client" role="combobox" aria-autocomplete="list" aria-expanded="false" x-bind:aria-expanded="open && {{ $count }} > 0" aria-controls="quick-client-matches"
+                        x-bind:aria-activedescendant="open && active >= 0 && active < {{ $count }} ? 'quick-client-matches-' + active : null"
+                        autocomplete="off" required maxlength="120" placeholder="Digita nome e cognome, telefono o email" wire:model.live.debounce.300ms="clientName"
+                        x-on:input="open = true; active = -1" x-on:focus="open = true" x-on:blur="open = false"
+                        x-on:keydown.arrow-down="if (open && {{ $count }} > 0) { $event.preventDefault(); active = Math.min(active + 1, {{ $count }} - 1) }"
+                        x-on:keydown.arrow-up="if (open && {{ $count }} > 0) { $event.preventDefault(); active = Math.max(active - 1, 0) }"
+                        x-on:keydown.enter="if (open && {{ $count }} > 0 && active >= 0) { $event.preventDefault(); $refs.matches.children[active].click() }"
+                        x-on:keydown.escape="if (open && {{ $count }} > 0) { $event.preventDefault(); $event.stopPropagation(); open = false }">
+                </label>
+                @if ($count > 0)
+                    <div class="crm-client-suggestions" role="listbox" id="quick-client-matches" aria-label="Clienti già presenti" x-ref="matches" x-show="open">
+                        @foreach ($suggestions as $s)
+                            <button type="button" role="option" aria-selected="false" x-bind:aria-selected="active === {{ $loop->index }}" id="quick-client-matches-{{ $loop->index }}" wire:key="s-{{ $s->id }}"
+                                x-on:mousedown.prevent x-on:click="open = false; active = -1" wire:click="choose({{ $s->id }})"><strong>{{ $s->display_name }}</strong><small>{{ $s->primaryPhone?->value ?: ($s->primaryEmail?->value ?: 'Scheda già presente') }}</small></button>
+                        @endforeach
+                    </div>
                 @endif
+                @if ($this->selected)<small class="crm-success">Cliente già in archivio · nessun doppione</small>@endif
+                @if ($fieldError('name'))<small class="crm-field-error">{{ $fieldError('name') }}</small>@endif
             </div>
-        </section>
-        <div class="crm-form-footer"><button class="crm-btn" type="submit" @disabled((bool) $this->existing) wire:loading.attr="disabled" wire:target="save"><span wire:loading.remove wire:target="save">Salva richiesta</span><span wire:loading wire:target="save">Salvataggio…</span></button><a class="crm-btn secondary" href="{{ route('gestionale.requests.index') }}" wire:navigate>Annulla</a></div>
-    </form>
+
+            @if (! $this->selected && trim($clientName) !== '')
+                <section class="crm-quick-new-client">
+                    <strong>{{ $this->inferred ? 'Cliente già presente' : 'Nuovo cliente' }}</strong>
+                    <p>{{ $this->inferred ? 'La richiesta sarà collegata alla scheda di '.$this->inferred->display_name.'. Se è una persona diversa, indica i suoi recapiti qui sotto.' : 'Puoi creare la scheda e salvare la richiesta insieme. Indica almeno un recapito.' }}</p>
+                    <div class="crm-form-grid">
+                        <label class="crm-field"><span>Telefono</span><input type="tel" maxlength="60" autocomplete="tel" wire:model.live.debounce.400ms="phone">@if ($fieldError('phone'))<small class="crm-field-error">{{ $fieldError('phone') }}</small>@endif</label>
+                        <label class="crm-field"><span>Email</span><input type="email" maxlength="160" autocomplete="email" wire:model.live.debounce.400ms="email">@if ($fieldError('email'))<small class="crm-field-error">{{ $fieldError('email') }}</small>@endif</label>
+                    </div>
+                    @if ($duplicate)
+                        <p class="crm-error">Recapito già presente: @can('update', $duplicate->contact)<button type="button" class="crm-link" wire:click="choose({{ $duplicate->contact->id }})">Usa {{ $duplicate->contact->display_name }}</button>@else in un’altra scheda dell’agenzia, verifica con il Responsabile.@endcan</p>
+                    @endif
+                    @if ($homonym && ! $duplicate && ! $this->inferred)
+                        <label class="crm-check"><input type="checkbox" wire:model="confirmHomonym">Ho verificato che è una persona diversa dal cliente omonimo.</label>
+                    @endif
+                </section>
+            @endif
+
+            @if ($this->existing)
+                <section>
+                    <p>Il cliente ha già una richiesta.</p>
+                    @can('view', $this->existing)<a class="crm-link" href="{{ route('gestionale.requests.show', $this->existing) }}" wire:navigate>Apri {{ $this->existing->title }}</a>@endcan
+                </section>
+            @endif
+
+            <div class="crm-quick-primary">
+                <label class="crm-field"><span>Acquisto o locazione</span><select required wire:model.live="operation"><option value="">Scegli</option><option>Acquisto</option><option>Locazione</option></select></label>
+                <label class="crm-field"><span>Tipologia</span><select required wire:model="typology"><option value="">Scegli</option>@foreach ($this->typologies as $t)<option>{{ $t }}</option>@endforeach</select></label>
+                <label class="crm-field"><span>Zona o Comune</span><input required maxlength="200" list="quick-request-zones" wire:model.live.debounce.400ms="zone"><datalist id="quick-request-zones">@foreach ($zonesConfigured as $z)<option>{{ $z }}</option>@endforeach</datalist></label>
+            </div>
+            @if ($zoneText !== '' && ! $zoneConfigured)<p class="crm-muted">La zona sarà annotata. Potrai precisarla nel profilo; non applica ancora un filtro geografico al confronto.</p>@endif
+            <fieldset class="crm-fieldset"><legend>{{ $operation === 'Locazione' ? 'Canone · €/mese' : 'Budget · €' }}</legend>
+                <div class="crm-form-grid">
+                    <label class="crm-field"><span>Da</span><input type="number" min="0" step="0.01" wire:model="budgetMin"></label>
+                    <label class="crm-field"><span>A</span><input type="number" min="0" step="0.01" wire:model="budgetMax"></label>
+                </div>
+                <small>Indica l’intervallo oppure un solo limite. Il valore Da non può superare A.</small>
+            </fieldset>
+            <label class="crm-field"><span>Note libere</span><textarea rows="4" maxlength="{{ $notesMax }}" wire:model="notes" placeholder="Esigenze, preferenze e altre informazioni sulla richiesta"></textarea></label>
+            <details class="crm-quick-details" wire:ignore.self><summary>Aggiungi dettagli</summary>
+                @foreach ($this->detailQuestions as $question)
+                    <fieldset class="crm-fieldset" wire:key="d-{{ $question['id'] }}"><legend>{{ AnswerPresenter::questionLabel($question) }}</legend>
+                        <x-gestionale.answer-input :question="$question" :options="$this->questionnaire->options($question, $this->purposeCriteria)" :value="$details[$question['id']] ?? null" model="details.{{ $question['id'] }}" />
+                        @if (Questionnaire::hasAnswer(AnswerPresenter::fromField($question, $details[$question['id']] ?? null)))<button type="button" class="crm-link" wire:click="clearDetail('{{ $question['id'] }}')">Lascia da definire</button>@endif
+                    </fieldset>
+                @endforeach
+            </details>
+            @foreach (['command', 'client', 'contact_id', 'quick', 'value', 'duplicate'] as $errorKey)
+                @error($errorKey)<p class="crm-error" role="alert">{{ $message }}</p>@enderror
+            @endforeach
+            <button class="crm-btn" type="submit" @disabled((bool) $this->existing) wire:loading.attr="disabled" wire:target="save">Salva richiesta</button>
+        </form>
+    </x-gestionale.crm-dialog>
 </div>

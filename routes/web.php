@@ -1,6 +1,7 @@
 <?php
 
 use Illuminate\Support\Facades\Route;
+use Spatie\GoogleCalendar\Event;
 
 // Home di REKO, uguale a quella di Trova
 Route::livewire('/', 'pages::trova.home')->name('home');
@@ -28,6 +29,16 @@ Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(fun
     Route::livewire('zones', 'pages::admin.zones.index')->name('zones.index');
 
 });
+
+
+
+Route::get('google-calendar', function(){
+    Event::create([
+        'name' => 'Visita',
+        'startDateTime' => now(),
+        'endDateTime' => now()->addHour(),
+    ], auth()->user()->google_calendar_id);
+})->name('google-calendar');
 
 require __DIR__.'/gestionale.php';
 require __DIR__.'/settings.php';

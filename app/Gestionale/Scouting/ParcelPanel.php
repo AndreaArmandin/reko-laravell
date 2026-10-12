@@ -60,13 +60,33 @@ final class ParcelPanel
      */
     public static function census(AgencyMembership $actor, int $parcelId): array
     {
-        $units = (int) self::units($parcelId, 1)['total'];
+        // Call 07/10, punto 20: “immobili in archivio” sono le unità già nell’archivio catastale dell’agenzia, non quelle del catalogo.
+        $units = self::archiveCounts($actor, [$parcelId])[$parcelId] ?? 0;
         $owners = DB::table('ownerships as o')->join('contacts as c', 'c.id', '=', 'o.contact_id')
             ->where('o.agency_id', $actor->agency_id)->whereNull('o.valid_to')->whereNull('c.removed_at')
             ->whereRaw('(o.parcel_id = ? OR o.cadastral_unit_id IN (SELECT id FROM cadastral_units WHERE parcel_id = ?))', [$parcelId, $parcelId])
             ->distinct()->count('o.contact_id');
 
         return ['units' => $units, 'owners' => $owners, 'outcome' => ScoutingMap::lastOutcomes($actor, [$parcelId])[$parcelId] ?? 'Nessun esito'];
+    }
+
+    /**
+     * Active units already in the agency archive, per parcel (numbers on the map and in the panel).
+     *
+     * @param  list<int>  $parcelIds
+     * @return array<int, int>
+     */
+    public static function archiveCounts(AgencyMembership $actor, array $parcelIds): array
+    {
+        if ($parcelIds === []) {
+            return [];
+        }
+
+        return DB::table('agency_unit_observations as o')->join('cadastral_units as cu', 'cu.id', '=', 'o.cadastral_unit_id')
+            ->where('o.agency_id', $actor->agency_id)->where('o.state', 'Attivo')->whereRaw("(o.removed IS NULL OR o.removed::text IN ('null', '[]', '{}'))")
+            ->whereIn('cu.parcel_id', $parcelIds)->groupBy('cu.parcel_id')
+            ->selectRaw('cu.parcel_id, count(*) AS n')->pluck('n', 'cu.parcel_id')
+            ->mapWithKeys(fn ($n, $id) => [(int) $id => (int) $n])->all();
     }
 
     /**

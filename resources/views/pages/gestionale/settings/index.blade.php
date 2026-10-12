@@ -4,7 +4,6 @@ use App\Gestionale\Actions\Settings\SaveMatchingWeights;
 use App\Gestionale\Actions\Settings\SaveMembership;
 use App\Gestionale\Actions\Settings\SaveQuestionSet;
 use App\Gestionale\AgencySettings;
-use App\Gestionale\Audit;
 use App\Gestionale\Livewire\HandlesCommands;
 use App\Gestionale\Questionnaire\Questionnaire;
 use App\Models\AgencyMembership;
@@ -117,10 +116,6 @@ new #[Layout('layouts::gestionale'), Title('Impostazioni CRM')] class extends Co
         abort_unless($this->isAdmin && in_array($tab, self::TABS, true), 403);
         $this->tab = $tab;
         $this->resetErrorBag();
-        // The access event is recorded without content (engine.ts audit.view).
-        if ($tab === 'Registro operazioni') {
-            app(Audit::class)->record('audit.view');
-        }
     }
 
     // ---- Abbinamenti ----
@@ -294,7 +289,7 @@ new #[Layout('layouts::gestionale'), Title('Impostazioni CRM')] class extends Co
                 'maxParcels' => $unlimited ? 0 : (int) ($f['packageLimit'] ?? 0),
                 'unlimited' => $unlimited,
             ],
-        ]), 'Profilo operatore aggiornato');
+        ]));
         if ($saved !== null) {
             unset($this->members);
             $this->editingUser = null;
@@ -425,7 +420,7 @@ new #[Layout('layouts::gestionale'), Title('Impostazioni CRM')] class extends Co
             <dialog class="proto-dialog reko-prototype proto-dialog-wide" aria-labelledby="question-dialog-title" wire:key="question-dialog" x-init="$el.showModal()" x-on:cancel.prevent="$wire.closeQuestion()" x-on:click="if ($event.target === $el) $wire.closeQuestion()">
                 <div class="proto-dialog-heading">
                     <div><p class="proto-eyebrow">Simulazione REKO</p><h2 id="question-dialog-title">{{ $editing === 'new' ? 'Nuova domanda' : 'Configura domanda' }}</h2></div>
-                    <button type="button" class="crm-icon-button" aria-label="Chiudi" wire:click="closeQuestion"><x-gestionale.lucide name="x" /></button>
+                    <button type="button" class="crm-dialog-close" aria-label="Chiudi" wire:click="closeQuestion"><x-gestionale.lucide name="x" :size="16" /></button>
                 </div>
                 <form class="crm-form" wire:submit="saveQuestion">
                     <label class="crm-field"><span>Testo domanda</span><input required wire:model="form.text"></label>
@@ -462,7 +457,7 @@ new #[Layout('layouts::gestionale'), Title('Impostazioni CRM')] class extends Co
             <dialog class="proto-dialog reko-prototype" aria-labelledby="user-dialog-title" wire:key="user-dialog" x-init="$el.showModal()" x-on:cancel.prevent="$wire.closeUser()" x-on:click="if ($event.target === $el) $wire.closeUser()">
                 <div class="proto-dialog-heading">
                     <div><p class="proto-eyebrow">Simulazione REKO</p><h2 id="user-dialog-title">Referente demo</h2></div>
-                    <button type="button" class="crm-icon-button" aria-label="Chiudi" wire:click="closeUser"><x-gestionale.lucide name="x" /></button>
+                    <button type="button" class="crm-dialog-close" aria-label="Chiudi" wire:click="closeUser"><x-gestionale.lucide name="x" :size="16" /></button>
                 </div>
                 <form class="crm-form" wire:submit="saveUser">
                     <label class="crm-field"><span>Nome dimostrativo</span><input value="{{ $target?->user->name }}" disabled></label>
@@ -475,7 +470,7 @@ new #[Layout('layouts::gestionale'), Title('Impostazioni CRM')] class extends Co
                     @foreach ($this::PERMISSIONS as $key => $label)
                         <label class="crm-check"><input type="checkbox" value="{{ $key }}" wire:model="userForm.permissions">{{ $label }}</label>
                     @endforeach
-                    <small>Permessi aggiuntivi assegnati a questo utente. La revoca blocca subito menu e API. Il caricamento dei fogli catastali resta riservato all’Amministratore.</small>
+                    <small>Permesso aggiuntivo assegnato a questo utente. La revoca blocca subito menu e API. Il caricamento dei fogli catastali resta riservato all’Amministratore.</small>
                     <fieldset class="crm-fieldset">
                         <legend>Acquisizione dal catalogo · pacchetto</legend>
                         <p>Nessun pacchetto viene attivato automaticamente. Inserisci le condizioni concordate prima di abilitarlo.</p>

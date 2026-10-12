@@ -27,7 +27,7 @@
 --}}
 <div {{ $attributes->class(['gmap']) }} @if ($height) style="height: {{ $height }}" @endif
     data-gestionale-map="{{ $key }}" wire:ignore wire:key="gestionale-map-{{ $key }}"
-    x-data="gestionaleMap(@js(array_replace($config, ['key' => $key, 'mode' => $mode])))">
+    x-data="gestionaleMap(@js(array_replace($config, ['key' => $key, 'mode' => $mode, 'addressPointsUrl' => route('gestionale.map.address-points')])))">
     <div x-ref="canvas" class="gmap-canvas" role="application" aria-label="{{ $label }}"></div>
     <div class="gmap-loading crm-skeleton-map" role="status" x-show="! loaded">Caricamento mappa…</div>
     <div class="gmap-notice" x-show="notice" x-cloak><div class="crm-map-cartography-notice" role="status" x-text="notice"></div></div>

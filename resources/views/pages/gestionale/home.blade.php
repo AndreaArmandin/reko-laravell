@@ -9,7 +9,7 @@ use App\Gestionale\CommandRejected;
 use App\Models\CensusProposal;
 use App\Gestionale\Goals\GoalEngine;
 use App\Gestionale\Properties\PropertyFilters;
-use App\Models\ClientProfile;
+use App\Gestionale\Questionnaire\Questionnaire;
 use App\Models\Contact;
 use App\Models\Activity;
 use App\Models\Property;
@@ -19,6 +19,7 @@ use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Layout;
+use Livewire\Attributes\On;
 use Livewire\Attributes\Title;
 use Livewire\Attributes\Url;
 use Livewire\Component;
@@ -34,12 +35,11 @@ new #[Layout('layouts::gestionale'), Title('Oggi')] class extends Component {
     public ?int $reviewProposalId = null;
     public string $proposalDecision = 'approve';
     public string $proposalReviewNote = '';
-    public string $proposalNotice = '';
+    public string $proposalError = '';
 
     public function mount(): void
     {
         app(GoalEngine::class)->ensureInitialGoals((int) $this->membership->agency_id);
-        $this->fullOverview = $this->fullOverview || $this->filtro === 'approvals';
     }
 
     public function openFullOverview(): void
@@ -47,11 +47,12 @@ new #[Layout('layouts::gestionale'), Title('Oggi')] class extends Component {
         $this->fullOverview = true;
     }
 
-    public function updatedFiltro(): void
+    /** Dopo un salvataggio dalle finestre delle attività: i riquadri si rileggono. */
+    #[On('activities-changed')]
+    public function refreshActivities(): void
     {
-        if ($this->filtro === 'approvals') {
-            $this->fullOverview = true;
-        }
+        unset($this->visibleActivities, $this->agenda, $this->activityProgress, $this->receivedActivities,
+            $this->scheduledRecalls, $this->callbackClients, $this->followups, $this->stats);
     }
 
     #[Computed]
@@ -77,13 +78,14 @@ new #[Layout('layouts::gestionale'), Title('Oggi')] class extends Component {
         $this->reviewProposalId = $proposalId;
         $this->proposalDecision = $decision;
         $this->proposalReviewNote = '';
-        $this->proposalNotice = '';
+        $this->proposalError = '';
     }
 
     public function closeProposalReview(): void
     {
         $this->reviewProposalId = null;
         $this->proposalReviewNote = '';
+        $this->proposalError = '';
     }
 
     public function reviewProposal(): void
@@ -98,16 +100,14 @@ new #[Layout('layouts::gestionale'), Title('Oggi')] class extends Component {
                 'reason' => $this->proposalReviewNote,
             ]);
         } catch (CommandRejected $e) {
-            $this->proposalNotice = $e->getMessage();
+            $this->proposalError = $e->getMessage();
 
             return;
         }
+        $approved = $this->proposalDecision === 'approve';
         $this->closeProposalReview();
-        $this->proposalNotice = $this->proposalDecision === 'approve'
-            ? 'Proposta approvata e registrata nello storico.'
-            : 'Proposta rifiutata e registrata nello storico.';
         unset($this->pendingCensusProposals);
-        $this->dispatch('crm-notice', type: 'success', text: $this->proposalNotice);
+        $this->dispatch('crm-notice', type: 'success', text: $approved ? 'Proposta approvata e registrata nello storico' : 'Proposta rifiutata e registrata nello storico');
     }
 
     #[Computed]
@@ -156,7 +156,7 @@ new #[Layout('layouts::gestionale'), Title('Oggi')] class extends Component {
         if (! $scout) {
             $widgets[] = ['id' => 'requests', 'title' => 'Richieste da completare', 'description' => 'Profilazioni da riprendere'];
         }
-        $widgets[] = ['id' => 'listings', 'title' => 'Annunci e schede', 'description' => 'Immobili da completare'];
+        $widgets[] = ['id' => 'listings', 'title' => 'Annunci e schede', 'description' => 'Immobili e annunci da completare'];
         $widgets[] = ['id' => 'received', 'title' => 'Attività ricevute', 'description' => 'Impegni assegnati dagli altri operatori'];
         if (! $scout) {
             $widgets[] = ['id' => 'followups', 'title' => 'Clienti e trattative', 'description' => 'Ricontatti, visite e risposte in attesa', 'hidden' => true];
@@ -167,57 +167,38 @@ new #[Layout('layouts::gestionale'), Title('Oggi')] class extends Component {
         return $widgets;
     }
 
+    /**
+     * Every activity the member can see (permissions.ts canSeeActivity, the same rule as the agenda), not
+     * cancelled and not a suspended acquisition. Completed ones included: the counters below split them.
+     */
     #[Computed]
-    public function agenda()
+    public function visibleActivities()
     {
-        return $this->visibleActivityQuery()->with(['contact', 'property', 'events'])
-            ->orderByRaw('scheduled_at IS NULL')->orderBy('scheduled_at')->limit(100)->get()
+        return app(ActivityAccess::class)
+            ->visible($this->membership, fn ($query) => $query->with(['contact', 'property'])->where('status', '<>', 'Annullata'))
             ->reject(fn (Activity $activity) => ActivityCatalog::suspendedAcquisition($activity))->values();
     }
 
-    private function visibleActivityQuery(bool $includeCompleted = false): Builder
+    #[Computed]
+    public function agenda()
     {
-        $m = $this->membership;
-        $query = Activity::query()->where('agency_id', $m->agency_id);
-        if (! $includeCompleted) {
-            $query->whereNotIn('status', ['Completata', 'Annullata']);
-        }
-        if ($m->role !== 'admin') {
-            $query->where(function ($q) use ($m) {
-                $q->where('assigned_to_user_id', $m->user_id)->orWhere('created_by_user_id', $m->user_id)
-                    ->orWhere('user_id', $m->user_id)
-                    ->orWhereHas('participants', fn ($p) => $p->where('user_id', $m->user_id));
-                if ($m->role === 'crm') {
-                    $q->orWhere(function ($workflow) use ($m) {
-                        $workflow->where('visibility', 'workflow')->where(function ($related) use ($m) {
-                            $related->whereHas('contact.clientProfile', fn ($c) => $c->where('agent_user_id', $m->user_id))
-                                ->orWhereHas('propertyRequest', fn ($r) => $r->where('agent_user_id', $m->user_id))
-                                ->orWhereHas('property', fn ($p) => $p->where('agent_user_id', $m->user_id));
-                        });
-                    });
-                }
-            });
-        }
-
-        return $query;
-    }
-
-    private function excludeSuspendedAcquisition(Builder $query): Builder
-    {
-        return $query->where(function (Builder $q) {
-            $q->whereNull('kind')->orWhere('kind', '!=', 'Appuntamento di acquisizione');
-        })->where(function (Builder $q) {
-            $q->whereNull('outcome')->orWhereNotIn('outcome', [
-                'ACQ', 'Incarico acquisito', 'Appuntamento di acquisizione fissato', 'Appuntamento di acquisizione svolto',
-            ]);
-        });
+        return $this->visibleActivities->reject(fn (Activity $activity) => $activity->status === 'Completata')
+            ->sortBy([fn (Activity $a, Activity $b) => ($a->scheduled_at === null) <=> ($b->scheduled_at === null),
+                fn (Activity $a, Activity $b) => $a->scheduled_at <=> $b->scheduled_at])->values();
     }
 
     #[Computed]
-    public function propertyCount(): int
+    public function scheduledRecalls(): int
     {
-        return Property::query()->visibleTo($this->membership)->whereNull('lifecycle_state')->count();
+        return $this->agenda->filter(fn (Activity $a) => in_array($a->kind, ['Telefonata', 'Promemoria'], true) && $a->scheduled_at !== null)->count();
     }
+
+    #[Computed]
+    public function questionnaire(): Questionnaire
+    {
+        return Questionnaire::forAgency((int) $this->membership->agency_id);
+    }
+
     #[Computed]
     public function requestsToComplete()
     {
@@ -299,16 +280,14 @@ new #[Layout('layouts::gestionale'), Title('Oggi')] class extends Component {
         $overdue = $activities->filter(fn (Activity $a) => ActivityCatalog::isOverdue($a));
         $dueToday = $activities->filter(fn (Activity $a) => $a->scheduled_at?->toDateString() === $today->toDateString() && ! ActivityCatalog::isOverdue($a));
         $now = CarbonImmutable::now();
-        $plannedToday = $this->excludeSuspendedAcquisition($this->visibleActivityQuery(true))
-            ->where('status', '!=', 'Annullata')
-            ->where('scheduled_at', '>=', $today->startOfDay())
-            ->where('scheduled_at', '<', $today->addDay()->startOfDay());
-        $total = (clone $plannedToday)->count();
-        $remaining = (clone $plannedToday)->whereNotIn('status', ['Completata', 'Annullata'])->count();
-        $todayCount = (clone $plannedToday)->whereNotIn('status', ['Completata', 'Annullata'])
-            ->where('scheduled_at', '>=', $now)->count();
-        $overdueCount = $this->excludeSuspendedAcquisition($this->visibleActivityQuery())
-            ->where('scheduled_at', '<', $now)->count();
+        $plannedToday = $this->visibleActivities
+            ->filter(fn (Activity $a) => $a->scheduled_at !== null
+                && $a->scheduled_at >= $today->startOfDay() && $a->scheduled_at < $today->addDay()->startOfDay());
+        $pendingToday = $plannedToday->reject(fn (Activity $a) => $a->status === 'Completata');
+        $total = $plannedToday->count();
+        $remaining = $pendingToday->count();
+        $todayCount = $pendingToday->filter(fn (Activity $a) => $a->scheduled_at >= $now)->count();
+        $overdueCount = $activities->filter(fn (Activity $a) => $a->scheduled_at !== null && $a->scheduled_at < $now)->count();
 
         return [
             'overdue' => $overdue->values(),
@@ -321,65 +300,86 @@ new #[Layout('layouts::gestionale'), Title('Oggi')] class extends Component {
     }
 }; ?>
 
-<div class="flex flex-col gap-6">
-    @if (! $fullOverview)
+<div>
+    @if ($filtro === 'approvals' && $this->membership->role === 'admin')
+        {{-- proposals-panel.tsx: con il filtro "approvals" Oggi mostra solo questo pannello. --}}
+        <section class="crm-panel" aria-label="Proposte da approvare">
+            <h2>Da approvare <span>{{ $this->pendingCensusProposals->count() }}</span></h2>
+            <p class="crm-muted">Proposte anagrafiche reali da verificare. Le pratiche di acquisizione restano sospese.</p>
+            @forelse ($this->pendingCensusProposals as $proposal)
+                <article class="crm-panel" wire:key="census-proposal-{{ $proposal->id }}">
+                    <h3>{{ $proposal->payload['name'] ?? 'Correzione proposta' }}</h3>
+                    <p>{{ $proposal->notes }}</p>
+                    <p class="crm-muted">{{ $proposal->proposedBy?->name ?? 'Operatore' }} · {{ \App\Gestionale\Activities\ActivityPresentation::dateLabel($proposal->created_at, true) }}</p>
+                    @if ($proposal->parcel_id || $proposal->cadastral_unit_id)<a class="crm-link" href="{{ route('gestionale.archive.index', $proposal->parcel_id ? ['parcel' => $proposal->parcel_id] : ['unit' => $proposal->cadastral_unit_id]) }}" wire:navigate>Apri la scheda collegata</a>@endif
+                    <div class="crm-actions"><button type="button" class="crm-btn" wire:click="openProposalReview({{ $proposal->id }}, 'approve')">Approva</button><button type="button" class="crm-btn secondary" wire:click="openProposalReview({{ $proposal->id }}, 'reject')">Rifiuta</button></div>
+                </article>
+            @empty<div class="crm-empty">Nessuna proposta in attesa.</div>@endforelse
+            @if ($reviewProposalId !== null)
+                @php($reviewed = $this->pendingCensusProposals->firstWhere('id', $reviewProposalId))
+                <x-gestionale.crm-dialog :title="$proposalDecision === 'approve' ? 'Approva proposta' : 'Rifiuta proposta'" :close="'$wire.closeProposalReview()'">
+                    <form class="crm-form" wire:submit="reviewProposal">
+                        <p>{{ ($reviewed?->payload['name'] ?? '') ?: $reviewed?->notes }}</p>
+                        <p>L’esito registra la verifica. Non modifica automaticamente intestazioni, quote o dati catastali: eventuali correzioni si applicano dalla scheda con la fonte necessaria.</p>
+                        <label class="crm-field"><span>{{ $proposalDecision === 'reject' ? 'Motivo del rifiuto' : 'Nota di verifica (facoltativa)' }}</span><textarea wire:model="proposalReviewNote" maxlength="4000" @required($proposalDecision === 'reject')></textarea></label>
+                        @if ($proposalError !== '')<p class="crm-error" role="alert">{{ $proposalError }}</p>@endif
+                        <button class="crm-btn" wire:loading.attr="disabled">{{ $proposalDecision === 'approve' ? 'Conferma approvazione' : 'Conferma rifiuto' }}</button>
+                    </form>
+                </x-gestionale.crm-dialog>
+            @endif
+        </section>
+    @elseif (! $fullOverview)
         <x-gestionale.today-panel :membership="$this->membership" />
-        <p class="crm-muted">Anteprima ridotta: apri la sezione per tutte le voci. I conteggi sono completi.</p>
         <button class="crm-link" type="button" wire:click="openFullOverview">Apri Oggi completo e il layout personalizzato</button>
     @else
     <div class="crm-page-head">
         <div>
-            <p class="proto-eyebrow">{{ $this->membership->agency->name }}</p>
+            <p class="proto-eyebrow">{{ auth()->user()->name }}</p>
             <h1>Il lavoro di oggi</h1>
-            <p>Buongiorno {{ auth()->user()->name }}. Ecco da dove ripartire.</p>
         </div>
         <div class="crm-actions">
             @if ($this->membership->role !== 'scout')
-                <a class="crm-btn" href="{{ route('gestionale.clients.create') }}" wire:navigate><x-gestionale.lucide name="plus" :size="16" />Nuovo cliente</a>
+                <a class="crm-btn" href="{{ route('gestionale.clients.create') }}" wire:navigate><x-gestionale.lucide name="users-round" :size="17" />Nuovo cliente</a>
             @else
-                <a class="crm-btn" href="{{ route('gestionale.scouting.index') }}" wire:navigate><x-gestionale.lucide name="map" :size="16" />Apri mappa e zone</a>
+                <a class="crm-btn" href="{{ route('gestionale.scouting.index') }}" wire:navigate>Apri mappa e zone</a>
             @endif
         </div>
     </div>
 
-    @if ($filtro === 'approvals' && $this->membership->role === 'admin')
-        <section class="crm-panel" aria-label="Proposte da approvare">
-            <div class="crm-between"><div><h2>Da approvare · {{ $this->pendingCensusProposals->count() }}</h2><p class="crm-muted">Le proposte sono segnalazioni da verificare. L’approvazione registra l’esito e non modifica automaticamente quote o intestazioni.</p></div><a class="crm-link" href="{{ route('gestionale.home') }}" wire:navigate>Chiudi proposte</a></div>
-            @if ($proposalNotice !== '')<p class="crm-form-error" role="status">{{ $proposalNotice }}</p>@endif
-            @forelse ($this->pendingCensusProposals as $proposal)
-                <article class="crm-panel" wire:key="census-proposal-{{ $proposal->id }}">
-                    <h3>{{ $proposal->payload['name'] ?? 'Correzione proposta' }}</h3>
-                    @if (! empty($proposal->payload['pid']))<p>CF / P. IVA: {{ $proposal->payload['pid'] }}</p>@endif
-                    <p>{{ $proposal->notes }}</p>
-                    <p class="crm-muted">{{ $proposal->proposedBy?->name ?? 'Operatore' }} · {{ \App\Gestionale\Activities\ActivityPresentation::dateLabel($proposal->created_at, true) }}</p>
-                    @if ($proposal->parcel_id || $proposal->cadastral_unit_id)<a class="crm-link" href="{{ route('gestionale.archive.index') }}" wire:navigate>Apri l’Archivio catastale</a>@endif
-                    <div class="crm-actions"><button type="button" class="crm-btn" wire:click="openProposalReview({{ $proposal->id }}, 'approve')">Approva</button><button type="button" class="crm-btn secondary" wire:click="openProposalReview({{ $proposal->id }}, 'reject')">Rifiuta</button></div>
-                </article>
-            @empty<div class="crm-empty">Nessuna proposta in attesa.</div>@endforelse
-        </section>
-        @if ($reviewProposalId !== null)
-            <x-gestionale.crm-dialog :title="$proposalDecision === 'approve' ? 'Approva proposta' : 'Rifiuta proposta'" label="Archivio catastale" :close="'$wire.closeProposalReview()'">
-                <form class="crm-form" wire:submit="reviewProposal">
-                    <label class="crm-field"><span>{{ $proposalDecision === 'approve' ? 'Nota di verifica (facoltativa)' : 'Motivo del rifiuto' }}</span><textarea wire:model="proposalReviewNote" maxlength="4000" @required($proposalDecision === 'reject')></textarea></label>
-                    <p class="crm-muted">L’esito viene registrato nello storico. Eventuali dati catastali si correggono dalla scheda con la fonte necessaria.</p>
-                    <div class="crm-actions"><button class="crm-btn" wire:loading.attr="disabled">Conferma {{ $proposalDecision === 'approve' ? 'approvazione' : 'rifiuto' }}</button><button type="button" class="crm-btn secondary" wire:click="closeProposalReview">Annulla</button></div>
-                </form>
-            </x-gestionale.crm-dialog>
-        @endif
-    @endif
-
     @if ($this->membership->role !== 'scout')
         <section class="crm-panel crm-first-steps" x-data="{ visible: true, key: @js('reko-first-steps:'.$this->membership->user_id), init() { try { this.visible = localStorage.getItem(this.key) !== 'closed' } catch { this.visible = true } }, close() { this.visible = false; try { localStorage.setItem(this.key, 'closed') } catch {} } }" x-show="visible" x-cloak aria-label="Guida iniziale">
-            <div class="crm-between"><h2>Inizia da qui</h2><button class="crm-icon-button" type="button" aria-label="Chiudi guida iniziale" x-on:click="close()">×</button></div>
+            <div class="crm-between"><h2>Inizia da qui</h2><button class="crm-icon-button" type="button" aria-label="Chiudi guida iniziale" x-on:click="close()"><x-gestionale.lucide name="x" :size="18" /></button></div>
             <ol>
                 <li><a href="{{ route('trova') }}">Cerca immobili</a><span>Scegli zona e caratteristiche.</span></li>
-                <li><a href="{{ route('gestionale.clients.create') }}" wire:navigate>Crea un cliente</a><span>Bastano nome e un recapito.</span></li>
-                <li><a href="{{ route('gestionale.requests.index') }}" wire:navigate>Collega una richiesta</a><span>Raccogli le esigenze e confronta gli immobili.</span></li>
+                <li><a class="crm-link" href="{{ route('gestionale.clients.create') }}" wire:navigate>Crea un cliente</a><span>Bastano nome e un recapito.</span></li>
+                <li><a class="crm-link" href="{{ route('gestionale.requests.index') }}" wire:navigate>Collega una richiesta</a><span>Raccogli le esigenze e confronta gli immobili.</span></li>
             </ol>
         </section>
     @endif
 
-    <div class="crm-dashboard" x-data="{
+    @php($overdueCount = $this->activityProgress['overdue']->count())
+    @if ($overdueCount > 0)
+        <div class="crm-overdue-notice" role="status"><strong>{{ $overdueCount }} {{ $overdueCount === 1 ? 'attività scaduta' : 'attività scadute' }}</strong><a class="crm-link" href="{{ route('gestionale.activities.index', ['filter' => 'scadute']) }}" wire:navigate>Vedi cosa recuperare <x-gestionale.lucide name="arrow-up-right" :size="16" /></a></div>
+    @endif
+
+    <section class="{{ $this->membership->role === 'scout' ? 'crm-recalls-single' : 'crm-form-grid' }}" aria-label="Richiami e suggerimenti">
+        <section class="crm-panel">
+            <h2>Richiami programmati</h2>
+            <p class="crm-muted">Telefonate e promemoria ancora da completare.</p>
+            <p class="crm-recall-count"><strong>{{ $this->scheduledRecalls }}</strong> {{ $this->scheduledRecalls === 1 ? 'richiamo con una data fissata' : 'richiami con una data fissata' }}</p>
+            <a class="crm-link" href="{{ route('gestionale.activities.index') }}" wire:navigate>Apri agenda <x-gestionale.lucide name="arrow-up-right" :size="16" /></a>
+        </section>
+        @if ($this->membership->role !== 'scout')
+            <section class="crm-panel">
+                <h2>Clienti da risentire</h2>
+                <p class="crm-muted">Contatti da riprendere in base alle ultime attività. Non sono appuntamenti.</p>
+                @foreach ($this->callbackClients as $client)<a class="crm-next-action" href="{{ route('gestionale.clients.show', $client) }}" wire:navigate><span>{{ $client->display_name }}</span><x-gestionale.lucide name="arrow-up-right" :size="16" /></a>@endforeach
+                @if ($this->callbackClients->isEmpty())<p>Nessun suggerimento al momento.</p>@endif
+            </section>
+        @endif
+    </section>
+
+    <div class="reko-dashboard" x-data="{
         definitions: @js($this->dashboardWidgets),
         key: @js('reko.dashboard.v1.'.rawurlencode((string) $this->membership->user_id).'.'.$this->membership->role),
         layout: [], saved: [], editing: false, ready: false, message: '',
@@ -398,7 +398,7 @@ new #[Layout('layouts::gestionale'), Title('Oggi')] class extends Component {
     }" x-init="init()">
         <div class="reko-board-bar">
             <div><x-gestionale.lucide name="layout-dashboard" :size="19" /><h2>La tua area di lavoro</h2></div>
-            <button class="crm-btn secondary" type="button" x-bind:disabled="!ready" x-bind:aria-expanded="editing" aria-controls="dashboard-customizer" x-on:click="if (editing) cancelLayout(); else { editing = true; message = '' }"><x-gestionale.lucide name="settings-2" :size="16" /><span x-text="editing ? 'Chiudi personalizzazione' : 'Personalizza questa pagina'"></span></button>
+            <button class="crm-btn secondary" type="button" x-bind:disabled="!ready" x-bind:aria-expanded="editing" aria-controls="dashboard-customizer" x-on:click="if (editing) layout = JSON.parse(JSON.stringify(saved)); editing = !editing; message = ''"><x-gestionale.lucide name="settings-2" :size="16" /><span x-text="editing ? 'Chiudi personalizzazione' : 'Personalizza questa pagina'"></span></button>
         </div>
         <section id="dashboard-customizer" class="reko-board-settings" x-show="editing" x-cloak aria-label="Personalizza questa pagina">
             <div><h3>Scegli cosa tenere in primo piano</h3><p>Mostra le sezioni utili, spostale con le frecce e scegli la larghezza. Su telefono si dispongono in una colonna.</p></div>
@@ -440,11 +440,8 @@ new #[Layout('layouts::gestionale'), Title('Oggi')] class extends Component {
             <section class="reko-widget" x-cloak x-show="isVisible('activities')" x-bind:class="{ 'is-wide': isWide('activities') }" x-bind:style="{ order: orderOf('activities') }" aria-labelledby="widget-activities">
                 <header class="reko-widget-head"><h2 id="widget-activities">Attività e scadenze</h2>@include('pages.gestionale.home-widget-controls', ['id' => 'activities', 'title' => 'Attività e scadenze'])</header>
                 <div class="reko-widget-body">
-                    @php($progress = $this->activityProgress)
-                    @if ($progress['overdueCount'] > 0)<h3>Da recuperare · {{ $progress['overdueCount'] }}</h3><x-gestionale.activity-timeline :activities="$progress['overdue']->take(5)" scope="agenda" order="given" />@endif
-                    @if ($progress['todayCount'] > 0)<h3>In programma oggi · {{ $progress['todayCount'] }}</h3><x-gestionale.activity-timeline :activities="$progress['today']->take(5)" scope="agenda" order="given" />@endif
-                    @if ($progress['remaining'] === 0 && $progress['overdueCount'] === 0)<div class="crm-empty">Nessuna attività da completare oggi.</div>@endif
-                    <a class="crm-link" href="{{ route('gestionale.activities.index') }}" wire:navigate>Apri tutte le attività</a>
+                    <x-gestionale.activity-timeline :activities="$this->activityProgress['overdue']->concat($this->activityProgress['today'])->take(5)" scope="agenda" order="given" key-prefix="activities" />
+                    <a class="crm-link" href="{{ route('gestionale.activities.index') }}" wire:navigate>Apri tutte le attività <x-gestionale.lucide name="arrow-up-right" :size="16" /></a>
                 </div>
             </section>
 
@@ -457,8 +454,9 @@ new #[Layout('layouts::gestionale'), Title('Oggi')] class extends Component {
                 <section class="reko-widget" x-cloak x-show="isVisible('requests')" x-bind:class="{ 'is-wide': isWide('requests') }" x-bind:style="{ order: orderOf('requests') }" aria-labelledby="widget-requests">
                     <header class="reko-widget-head"><h2 id="widget-requests">Richieste da completare</h2>@include('pages.gestionale.home-widget-controls', ['id' => 'requests', 'title' => 'Richieste da completare'])</header>
                     <div class="reko-widget-body">
-                        @forelse ($this->requestsToComplete as $request)<a class="crm-next-action" href="{{ route('gestionale.requests.show', $request) }}" wire:navigate><span><strong>{{ $request->title }}</strong><small>{{ $request->contact?->display_name }} · {{ $request->status }}</small></span><x-gestionale.lucide name="arrow-up-right" :size="16" /></a>@empty<div class="crm-empty">Nessuna richiesta da completare.</div>@endforelse
-                        <a class="crm-link" href="{{ route('gestionale.requests.index', ['filtro' => 'incomplete']) }}" wire:navigate>Apri richieste da completare</a>
+                        @foreach ($this->requestsToComplete as $request)<x-gestionale.crm-request-row :request="$request" :progress="App\Gestionale\Questionnaire\ProfileFlow::baseCompleteness($this->questionnaire, $request->criteria)" :show-activities="false" />@endforeach
+                        @if ($this->requestsToComplete->isEmpty())<div class="crm-empty">Nessuna richiesta da completare.</div>@endif
+                        <a class="crm-link" href="{{ route('gestionale.requests.index', ['filtro' => 'incomplete']) }}" wire:navigate>Apri richieste <x-gestionale.lucide name="arrow-up-right" :size="16" /></a>
                     </div>
                 </section>
             @endif
@@ -466,35 +464,34 @@ new #[Layout('layouts::gestionale'), Title('Oggi')] class extends Component {
             <section class="reko-widget" x-cloak x-show="isVisible('listings')" x-bind:class="{ 'is-wide': isWide('listings') }" x-bind:style="{ order: orderOf('listings') }" aria-labelledby="widget-listings">
                 <header class="reko-widget-head"><h2 id="widget-listings">Annunci e schede</h2>@include('pages.gestionale.home-widget-controls', ['id' => 'listings', 'title' => 'Annunci e schede'])</header>
                 <div class="reko-widget-body">
-                    <a class="reko-task-link" href="{{ route('gestionale.properties.index', ['filtro' => 'incompleti']) }}" wire:navigate><span>Schede / annunci da completare</span><strong>{{ $this->incompletePropertyCount }}</strong><x-gestionale.lucide name="arrow-up-right" :size="16" /></a>
-                    @foreach ($this->incompleteProperties as $property)<a class="crm-next-action" href="{{ route('gestionale.properties.show', $property) }}" wire:navigate><span>{{ $property->title }}<small>{{ $property->address }} · {{ $property->status }}</small></span><x-gestionale.lucide name="arrow-up-right" :size="16" /></a>@endforeach
+                    <div class="reko-task-links"><a href="{{ route('gestionale.properties.index', ['filtro' => 'incompleti']) }}" wire:navigate><span>Schede / annunci da completare</span><strong>{{ $this->incompletePropertyCount }}</strong><x-gestionale.lucide name="arrow-up-right" :size="16" /></a></div>
+                    @foreach ($this->incompleteProperties as $property)<a class="crm-next-action" href="{{ route('gestionale.properties.show', $property) }}" wire:navigate><span>{{ $property->title }}<small>{{ implode(' ', array_filter([$property->address, $property->civic])) }} · {{ ($property->publication['status'] ?? '') ?: 'Scheda da completare' }}</small></span><x-gestionale.lucide name="arrow-up-right" :size="16" /></a>@endforeach
                 </div>
             </section>
 
             <section class="reko-widget" x-cloak x-show="isVisible('received')" x-bind:class="{ 'is-wide': isWide('received') }" x-bind:style="{ order: orderOf('received') }" aria-labelledby="widget-received">
                 <header class="reko-widget-head"><h2 id="widget-received">Attività ricevute</h2>@include('pages.gestionale.home-widget-controls', ['id' => 'received', 'title' => 'Attività ricevute'])</header>
-                <div class="reko-widget-body"><x-gestionale.activity-timeline :activities="array_slice($this->receivedActivities, 0, 5)" scope="agenda" order="given" /><a class="crm-link" href="{{ route('gestionale.activities.index', ['origin' => 'Ricevute da altri']) }}" wire:navigate>Tutte le attività ricevute</a></div>
+                <div class="reko-widget-body"><x-gestionale.activity-timeline :activities="array_slice($this->receivedActivities, 0, 5)" scope="agenda" order="given" key-prefix="received" /><a class="crm-link" href="{{ route('gestionale.activities.index') }}" wire:navigate>Tutte le attività</a></div>
             </section>
 
             @if ($this->membership->role !== 'scout')
                 <section class="reko-widget" x-cloak x-show="isVisible('followups')" x-bind:class="{ 'is-wide': isWide('followups') }" x-bind:style="{ order: orderOf('followups') }" aria-labelledby="widget-followups">
                     <header class="reko-widget-head"><h2 id="widget-followups">Clienti e trattative</h2>@include('pages.gestionale.home-widget-controls', ['id' => 'followups', 'title' => 'Clienti e trattative'])</header>
                     <div class="reko-widget-body"><div class="reko-task-links">
-                        <a href="{{ route('gestionale.clients.index', ['filtro' => 'richiamare']) }}" wire:navigate><span>Clienti da risentire</span><strong>{{ $this->followups['callbacks'] }}</strong></a>
-                        <a href="{{ route('gestionale.requests.index', ['filtro' => 'attesa']) }}" wire:navigate><span>In attesa di risposta</span><strong>{{ $this->followups['awaiting'] }}</strong></a>
-                        <a href="{{ route('gestionale.requests.index', ['filtro' => 'visite']) }}" wire:navigate><span>Visite da programmare</span><strong>{{ $this->followups['visitsToPlan'] }}</strong></a>
-                        <a href="{{ route('gestionale.activities.index', ['filter' => 'visite']) }}" wire:navigate><span>Visite programmate</span><strong>{{ $this->followups['scheduledVisits'] }}</strong></a>
-                        <a href="{{ route('gestionale.requests.index', ['filtro' => 'trattativa']) }}" wire:navigate><span>Trattative aperte</span><strong>{{ $this->followups['negotiations'] }}</strong></a>
-                        <a href="{{ route('gestionale.activities.index', ['filter' => 'riscontri']) }}" wire:navigate><span>Visite in attesa di riscontro</span><strong>{{ $this->followups['visitFollowups'] }}</strong></a>
-                    </div>
-                    @foreach ($this->callbackClients as $client)<a class="crm-next-action" href="{{ route('gestionale.clients.show', $client) }}" wire:navigate><span>{{ $client->display_name }}<small>Da richiamare</small></span><x-gestionale.lucide name="arrow-up-right" :size="16" /></a>@endforeach
-                    </div>
+                        <a href="{{ route('gestionale.clients.index', ['filtro' => 'richiamare']) }}" wire:navigate><span>Clienti da risentire · suggerimenti</span><strong>{{ $this->followups['callbacks'] }}</strong><x-gestionale.lucide name="arrow-up-right" :size="16" /></a>
+                        <a href="{{ route('gestionale.requests.index', ['filtro' => 'attesa']) }}" wire:navigate><span>In attesa di risposta</span><strong>{{ $this->followups['awaiting'] }}</strong><x-gestionale.lucide name="arrow-up-right" :size="16" /></a>
+                        <a href="{{ route('gestionale.requests.index', ['filtro' => 'visite']) }}" wire:navigate><span>Visite da programmare</span><strong>{{ $this->followups['visitsToPlan'] }}</strong><x-gestionale.lucide name="arrow-up-right" :size="16" /></a>
+                        <a href="{{ route('gestionale.activities.index', ['filter' => 'visite']) }}" wire:navigate><span>Visite programmate</span><strong>{{ $this->followups['scheduledVisits'] }}</strong><x-gestionale.lucide name="arrow-up-right" :size="16" /></a>
+                        <a href="{{ route('gestionale.requests.index', ['filtro' => 'trattativa']) }}" wire:navigate><span>Trattative aperte</span><strong>{{ $this->followups['negotiations'] }}</strong><x-gestionale.lucide name="arrow-up-right" :size="16" /></a>
+                        <a href="{{ route('gestionale.activities.index', ['filter' => 'riscontri']) }}" wire:navigate><span>Visite in attesa di riscontro</span><strong>{{ $this->followups['visitFollowups'] }}</strong><x-gestionale.lucide name="arrow-up-right" :size="16" /></a>
+                    </div></div>
                 </section>
 
                 <section class="reko-widget" x-cloak x-show="isVisible('active-requests')" x-bind:class="{ 'is-wide': isWide('active-requests') }" x-bind:style="{ order: orderOf('active-requests') }" aria-labelledby="widget-active-requests">
                     <header class="reko-widget-head"><h2 id="widget-active-requests">Richieste in movimento</h2>@include('pages.gestionale.home-widget-controls', ['id' => 'active-requests', 'title' => 'Richieste in movimento'])</header>
                     <div class="reko-widget-body">
-                        @forelse ($this->activeRequests as $request)<a class="crm-next-action" href="{{ route('gestionale.requests.show', $request) }}" wire:navigate><span>{{ $request->title }}<small>{{ $request->contact?->display_name }} · {{ $request->status }}</small></span><x-gestionale.lucide name="arrow-up-right" :size="16" /></a>@empty<div class="crm-empty">Nessuna richiesta attiva.</div>@endforelse
+                        @foreach ($this->activeRequests as $request)<x-gestionale.crm-request-row :request="$request" :progress="App\Gestionale\Questionnaire\ProfileFlow::baseCompleteness($this->questionnaire, $request->criteria)" />@endforeach
+                        @if ($this->activeRequests->isEmpty())<div class="crm-empty">Nessuna richiesta attiva.</div>@endif
                         <a class="crm-link" href="{{ route('gestionale.requests.index') }}" wire:navigate>Tutte le richieste</a>
                     </div>
                 </section>
@@ -503,17 +500,15 @@ new #[Layout('layouts::gestionale'), Title('Oggi')] class extends Component {
             <section class="reko-widget" x-cloak x-show="isVisible('properties')" x-bind:class="{ 'is-wide': isWide('properties') }" x-bind:style="{ order: orderOf('properties') }" aria-labelledby="widget-properties">
                 <header class="reko-widget-head"><h2 id="widget-properties">Ultimi immobili acquisiti</h2>@include('pages.gestionale.home-widget-controls', ['id' => 'properties', 'title' => 'Ultimi immobili acquisiti'])</header>
                 <div class="reko-widget-body">
-                    @forelse ($this->latestProperties as $property)
-                        <a class="crm-next-action" href="{{ route('gestionale.properties.show', $property) }}" wire:navigate>
-                            <span>{{ $property->title }}<small>{{ $property->address }} · {{ $property->city }}</small></span>
-                            <x-gestionale.lucide name="arrow-up-right" :size="16" />
-                        </a>
-                    @empty
-                        <div class="crm-empty">Nessun immobile in portafoglio.</div>
-                    @endforelse
+                    <div class="crm-property-grid">@foreach ($this->latestProperties as $property)<x-gestionale.property-card :property="$property" />@endforeach</div>
+                    @if ($this->latestProperties->isEmpty())<div class="crm-empty">Nessun immobile in portafoglio.</div>@endif
                     <a class="crm-link" href="{{ route('gestionale.properties.index') }}" wire:navigate>Apri portafoglio</a>
                 </div>
             </section>
+        </div>
+        <div class="crm-empty" x-show="ready && !layout.some(w => w.visible)" x-cloak>
+            <p>Nessuna sezione visibile. I tuoi dati sono al sicuro nelle sezioni del menu.</p>
+            <button class="crm-btn secondary" type="button" x-on:click="editing = true">Scegli i riquadri</button>
         </div>
         <livewire:pages::gestionale.activities.dialogs scope="agenda" key="dashboard-agenda-dialogs" />
     </div>

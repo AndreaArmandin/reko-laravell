@@ -14,6 +14,7 @@ new #[Title('Profile settings')] class extends Component {
 
     public string $name = '';
     public string $email = '';
+    public string $google_calendar_id = '';
 
     /**
      * Mount the component.
@@ -22,6 +23,7 @@ new #[Title('Profile settings')] class extends Component {
     {
         $this->name = Auth::user()->name;
         $this->email = Auth::user()->email;
+        $this->google_calendar_id = Auth::user()->google_calendar_id ?? '';
     }
 
     /**
@@ -106,6 +108,10 @@ new #[Title('Profile settings')] class extends Component {
                     </div>
                 @endif
             </div>
+
+            {{-- Google Calendar ID --}}
+            <flux:input wire:model="google_calendar_id" :label="__('Google Calendar ID')" type="text" required autocomplete="google_calendar_id" />
+
 
             <div class="flex items-center gap-4">
                 <div class="flex items-center justify-end">

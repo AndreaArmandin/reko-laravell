@@ -2,6 +2,7 @@
 
 namespace App\Gestionale\Goals;
 
+use App\Gestionale\Census\ObservedUnits;
 use App\Models\Activity;
 use App\Models\Concerns\AgencyScope;
 use App\Models\Contact;
@@ -253,7 +254,8 @@ final class GoalEngine
         $reminder = $a->kind === 'Promemoria';
         // Migration does not turn old, unconfirmed demo outcomes into new achievements.
         $member = $operator !== null && DB::table('agency_memberships')->where('agency_id', $agencyId)->where('user_id', $operator)->exists();
-        if ($reminder || ($a->completed_at === null && $confirmedAt === null) || ! $member) {
+        // goals.ts: an activity on a suppressed or removed unit never counts.
+        if ($reminder || ($a->completed_at === null && $confirmedAt === null) || ! $member || ObservedUnits::activityHasInactive($agencyId, (int) $a->id)) {
             DB::table('goal_events')->where('agency_id', $agencyId)->where('event_key', $key)->delete();
 
             return null;

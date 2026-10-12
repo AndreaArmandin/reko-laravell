@@ -47,6 +47,17 @@ final class ActivityContext
         return $context;
     }
 
+    /**
+     * The scope that ties a record panel to its dialogs: the timeline buttons dispatch events carrying it,
+     * so every timeline shown next to a panel must use the scope of that panel's context.
+     *
+     * @param  array<string, mixed>  $context
+     */
+    public static function scope(array $context): string
+    {
+        return 'rec-'.substr(md5(json_encode(self::normalize($context))), 0, 10);
+    }
+
     /** @param array<string, mixed> $context */
     public static function normalize(array $context): array
     {

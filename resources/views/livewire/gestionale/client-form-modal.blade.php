@@ -16,6 +16,8 @@ new class extends Component {
     use HandlesCommands;
 
     public bool $open = false;
+    /** Aperta da una route (clienti/nuovo, clienti/{id}/modifica): chiudendola si torna alla lista o alla scheda. */
+    public bool $routed = false;
     public ?Contact $contact = null;
     public ?string $revision = null;
     public string $idempotencyKey = '';
@@ -33,9 +35,19 @@ new class extends Component {
     public bool $consent_marketing = false;
     public bool $confirm_duplicate = false;
 
+    /** $autoOpen: 'new' per un cliente nuovo, l'id del cliente da modificare, null per aprirla solo con l'evento. */
+    public function mount(int|string|null $autoOpen = null): void
+    {
+        if ($autoOpen !== null) {
+            $this->showForm($autoOpen === 'new' ? null : (int) $autoOpen);
+            $this->routed = true;
+        }
+    }
+
     #[On('open-client-form')]
     public function showForm(?int $contactId = null): void
     {
+        $this->routed = false;
         $this->resetValidation();
         $this->resetErrorBag();
         $this->open = false;
@@ -120,6 +132,11 @@ new class extends Component {
     {
         $this->open = false;
         $this->resetValidation();
+        if ($this->routed) {
+            $this->contact
+                ? $this->redirectRoute('gestionale.clients.show', $this->contact, navigate: true)
+                : $this->redirectRoute('gestionale.clients.index', navigate: true);
+        }
     }
 
     public function save(): void

@@ -18,29 +18,21 @@
             <button type="button" class="crm-link" x-on:click="privacy = true">Anonimizzazione · informazioni</button>
         @endif
         <template x-if="privacy">
-            <dialog class="proto-dialog reko-prototype" aria-labelledby="privacy-title-{{ $id }}" x-init="$el.showModal()" x-on:cancel.prevent="privacy = false" x-on:click="if ($event.target === $el) privacy = false">
-                <div class="proto-dialog-heading">
-                    <div><p class="proto-eyebrow">Simulazione REKO</p><h2 id="privacy-title-{{ $id }}">Anonimizzazione dei dati</h2></div>
-                    <button type="button" class="inline-flex size-8 shrink-0 items-center justify-center rounded-lg hover:bg-black/5" aria-label="Chiudi" x-on:click="privacy = false"><x-gestionale.lucide name="x" :size="16" /></button>
-                </div>
+            <x-gestionale.crm-dialog title="Anonimizzazione dei dati" close="privacy = false">
                 <p>Anonimizzare significa eliminare definitivamente i dati che identificano il cliente, anche dai collegamenti e dallo storico. Non equivale a nascondere una scheda.</p>
                 <p class="crm-info">L’anonimizzazione definitiva non è attiva in questo MVP. Nessun dato viene modificato da questa finestra. Per togliere una scheda dalle liste usa “Rimuovi dalle liste”: potrai ripristinarla.</p>
                 <button type="button" class="crm-btn" x-on:click="privacy = false">Ho capito</button>
-            </dialog>
+            </x-gestionale.crm-dialog>
         </template>
         <template x-if="confirm">
-            <dialog class="proto-dialog reko-prototype" aria-labelledby="remove-title-{{ $id }}" x-init="$el.showModal()" x-on:cancel.prevent="confirm = false" x-on:click="if ($event.target === $el) confirm = false">
-                <div class="proto-dialog-heading">
-                    <div><p class="proto-eyebrow">Simulazione REKO</p><h2 id="remove-title-{{ $id }}">Rimuovi una scheda</h2></div>
-                    <button type="button" class="inline-flex size-8 shrink-0 items-center justify-center rounded-lg hover:bg-black/5" aria-label="Chiudi" x-on:click="confirm = false"><x-gestionale.lucide name="x" :size="16" /></button>
-                </div>
+            <x-gestionale.crm-dialog title="Rimuovi una scheda" close="confirm = false">
                 <p>Puoi rimuovere la scheda dalle liste attive e ripristinarla in seguito. Non verranno cancellati dati, attività, collegamenti o punteggi.</p>
                 <label class="crm-check"><input type="checkbox" x-model="checked">Confermo la rimozione reversibile dalla lista</label>
                 <div class="crm-actions">
                     <button type="button" class="crm-btn secondary" x-on:click="confirm = false">Annulla</button>
                     <button type="button" class="crm-btn" x-bind:disabled="! checked" wire:click="remove({{ $id }})" wire:loading.attr="disabled" wire:target="archive,restore,remove" x-on:click="confirm = false">Rimuovi dalla lista</button>
                 </div>
-            </dialog>
+            </x-gestionale.crm-dialog>
         </template>
     @endif
 </section>

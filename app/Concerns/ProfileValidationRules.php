@@ -18,6 +18,7 @@ trait ProfileValidationRules
         return [
             'name' => $this->nameRules(),
             'email' => $this->emailRules($userId),
+            'google_calendar_id' => ['nullable', 'string', 'max:255'],
         ];
     }
 

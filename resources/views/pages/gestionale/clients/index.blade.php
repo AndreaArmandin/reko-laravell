@@ -228,7 +228,7 @@ new #[Layout('layouts::gestionale'), Title('Clienti')] class extends Component {
                     <x-gestionale.lucide name="arrow-up-right" :size="17" />
                 </a>
                 <x-gestionale.crm-contact-links :name="$client->display_name" :phone="$client->primaryPhone?->value" :email="$client->primaryEmail?->value" />
-                <x-gestionale.record-activities :context="['contact_id' => $client->id]" :compact="true" :hide-empty-summary="true" />
+                <x-gestionale.record-activities :context="['contact_id' => $client->id]" :compact="true" :hide-empty-summary="true" :person-actions="true" :menu-label="'Azioni per '.$client->display_name" />
             </article>
         @empty
             <div class="crm-empty">Nessun cliente con questi criteri. Modifica la ricerca o crea una scheda.</div>
@@ -236,5 +236,5 @@ new #[Layout('layouts::gestionale'), Title('Clienti')] class extends Component {
     </section>
 
     {{ $this->clients->links() }}
-    <livewire:gestionale.client-form-modal />
+    <livewire:gestionale.client-form-modal :auto-open="request()->routeIs('gestionale.clients.create') ? 'new' : null" />
 </div>

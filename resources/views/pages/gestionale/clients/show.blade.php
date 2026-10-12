@@ -11,18 +11,13 @@ use Livewire\Attributes\Title;
 use Livewire\Component;
 
 /*
- * Scheda cliente: recapiti, richieste, attività e conservazione reversibile come in clients.tsx.
+ * Scheda cliente: recapiti, richieste, attività e conservazione reversibile come in clients.tsx. Il form di modifica è
+ * la finestra <livewire:gestionale.client-form-modal>, aperta anche dalla route clienti/{id}/modifica.
  */
 new #[Layout('layouts::gestionale'), Title('Scheda cliente')] class extends Component {
     use HandlesCommands;
 
     public Contact $contact;
-
-    public bool $confirmRemove = false;
-
-    public bool $removeDialogOpen = false;
-
-    public bool $anonymizeInfoOpen = false;
 
     public function mount(Contact $contact): void
     {
@@ -44,44 +39,37 @@ new #[Layout('layouts::gestionale'), Title('Scheda cliente')] class extends Comp
             ->orderByDesc('updated_at')->orderByDesc('id')->get();
     }
 
-    public function lifecycle(string $mode): void
+    /** record-lifecycle.tsx act(): la conferma della rimozione è la casella nella finestra di <x-gestionale.crm-lifecycle>. */
+    public function lifecycle(string $mode, bool $confirmed = false): void
     {
-        $done = $this->command(fn () => app(SetRecordLifecycle::class)->handle($this->actor(), $this->profile, $mode, $this->confirmRemove),
-            ['archive' => 'Cliente archiviato.', 'remove' => 'Cliente rimosso dalle liste.', 'restore' => 'Cliente ripristinato.'][$mode] ?? null);
+        $done = $this->command(fn () => app(SetRecordLifecycle::class)->handle($this->actor(), $this->profile, $mode, $confirmed), [
+            'archive' => 'Scheda archiviata. Puoi annullare con “Ripristina”.',
+            'remove' => 'Scheda rimossa dalla lista. Puoi ripristinarla dagli archiviati.',
+            'restore' => 'Scheda ripristinata',
+        ][$mode] ?? null);
         if ($done) {
-            $this->confirmRemove = false;
-            $this->removeDialogOpen = false;
             unset($this->profile);
         }
     }
 
-    public function openRemoveDialog(): void
+    public function archive(int $id): void
     {
-        abort_unless($this->actor()->isAdmin() && $this->profile->lifecycle_state !== 'removed', 403);
-        $this->confirmRemove = false;
-        $this->removeDialogOpen = true;
+        $this->lifecycle('archive');
     }
 
-    public function closeRemoveDialog(): void
+    public function restore(int $id): void
     {
-        $this->removeDialogOpen = false;
-        $this->confirmRemove = false;
+        $this->lifecycle('restore');
     }
 
-    public function openAnonymizeInfo(): void
+    public function remove(int $id): void
     {
-        abort_unless($this->actor()->isAdmin(), 403);
-        $this->anonymizeInfoOpen = true;
+        $this->lifecycle('remove', true);
     }
-
-    public function closeAnonymizeInfo(): void
-    {
-        $this->anonymizeInfoOpen = false;
-    }
-
 }; ?>
 
 @php($p = $this->profile)
+@php($links = App\Gestionale\Clients\ClientCard::contactLinks($contact->primaryPhone?->value, $contact->primaryEmail?->value))
 @php($questionnaire = App\Gestionale\Questionnaire\Questionnaire::forAgency($contact->agency_id))
 <div class="crm-record-page">
     <a class="crm-back" href="{{ route('gestionale.clients.index') }}" wire:navigate><x-gestionale.lucide name="arrow-left" :size="16" />Tutti i clienti</a>
@@ -93,20 +81,20 @@ new #[Layout('layouts::gestionale'), Title('Scheda cliente')] class extends Comp
         <div class="crm-actions">
             @can('update', $contact)
                 <button type="button" class="crm-btn secondary" wire:click="$dispatch('open-client-form', { contactId: {{ $contact->id }} })"><x-gestionale.lucide name="pencil" :size="16" />Modifica</button>
-                <a class="crm-btn" href="{{ route('gestionale.requests.create', ['cliente' => $contact->id]) }}" wire:navigate><x-gestionale.lucide name="plus" :size="16" />Nuova richiesta</a>
+                <a class="crm-btn" href="{{ route('gestionale.clients.show', ['contact' => $contact->id, 'nuovaRichiesta' => 1]) }}" wire:navigate><x-gestionale.lucide name="plus" :size="16" />Nuova richiesta</a>
             @endcan
         </div>
     </div>
 
     @if (App\Gestionale\Properties\TestRecords::isTestClient($contact))<p class="crm-contact-warning" role="note">TEST · Scheda di prova, non un cliente reale.</p>@endif
-    <x-gestionale.record-activities :context="['contact_id' => $contact->id]" />
+    <x-gestionale.record-activities :context="['contact_id' => $contact->id]" :person-actions="true" :menu-label="'Azioni per '.$contact->display_name" />
 
     <div class="crm-detail-grid">
         <section class="crm-panel">
             <h2>Recapiti</h2>
             <dl class="crm-facts">
-                <div><dt>Numero di telefono</dt><dd>@if ($contact->primaryPhone)<a href="tel:{{ preg_replace('/[^\d+]/', '', $contact->primaryPhone->value) }}">{{ $contact->primaryPhone->value }}</a>@else Non indicato @endif</dd></div>
-                <div><dt>Email</dt><dd>@if ($contact->primaryEmail)<a href="mailto:{{ rawurlencode($contact->primaryEmail->value) }}">{{ $contact->primaryEmail->value }}</a>@else Non indicata @endif</dd></div>
+                <div><dt>Numero di telefono</dt><dd>@if ($links['phone'] !== '')@if ($links['tel'])<a href="{{ $links['tel'] }}">{{ $contact->primaryPhone->value }}</a>@else{{ $contact->primaryPhone->value }}@endif@else Non indicato @endif</dd></div>
+                <div><dt>Email</dt><dd>@if ($links['email'] !== '')@if ($links['emailHref'])<a href="{{ $links['emailHref'] }}">{{ $contact->primaryEmail->value }}</a>@else{{ $contact->primaryEmail->value }}@endif@else Non indicata @endif</dd></div>
                 <div><dt>Creatore del lead</dt><dd>{{ $p->createdBy?->name ?? 'Non registrato nello storico' }}</dd></div>
             </dl>
         </section>
@@ -117,39 +105,18 @@ new #[Layout('layouts::gestionale'), Title('Scheda cliente')] class extends Comp
                 @php($progress = ProfileFlow::baseCompleteness($questionnaire, $request->criteria))
                 <x-gestionale.crm-request-row :request="$request" :progress="$progress" :show-client="false" :show-activities="false" />
             @empty
-                <p class="crm-empty">Parti da una nuova richiesta. Le successive rimarranno indipendenti.</p>
+                <div class="crm-empty">Parti da una nuova richiesta. Le successive rimarranno indipendenti.</div>
             @endforelse
         </section>
     </div>
 
     <section class="crm-panel">
         <h2>Archiviazione e rimozione cliente</h2>
-        <p class="crm-muted">Operazioni reversibili: dati, collegamenti e storico vengono conservati.</p>
+        <p>Puoi togliere il cliente dalle liste attive senza perdere richieste e storico.</p>
         @error('command')<p class="crm-error" role="alert">{{ $message }}</p>@enderror
-        <div class="crm-actions">
-            @if ($p->lifecycle_state)
-                <button class="crm-btn secondary" wire:click="lifecycle('restore')">Ripristina</button>
-            @else
-                @can('archive', $contact)<button class="crm-btn secondary" wire:click="lifecycle('archive')">Archivia</button>@endcan
-            @endif
-            @if ($this->actor()->isAdmin() && $p->lifecycle_state !== 'removed')<button type="button" class="crm-btn secondary" wire:click="openRemoveDialog">Rimuovi dalle liste</button>@endif
-            @if ($this->actor()->isAdmin())<button type="button" class="crm-btn secondary" wire:click="openAnonymizeInfo">Anonimizzazione · informazioni</button>@endif
-        </div>
+        <x-gestionale.crm-lifecycle kind="client" :id="$contact->id" :state="$p->lifecycle_state" :at="$p->lifecycle_at" :admin="$this->actor()->isAdmin()" />
     </section>
 
-    @if ($removeDialogOpen)
-        <x-gestionale.crm-dialog title="Rimuovi dalle liste" label="Scheda cliente" :close="'$wire.closeRemoveDialog()'">
-            <div class="crm-form"><p class="crm-muted">La scheda esce dalle liste ma resta conservata con tutti i collegamenti. Puoi ripristinarla in qualsiasi momento.</p>
-                <label class="crm-check"><input type="checkbox" wire:model="confirmRemove">Confermo la rimozione reversibile dalla lista</label>
-                <div class="crm-actions"><button type="button" class="crm-btn secondary" wire:click="closeRemoveDialog">Annulla</button><button type="button" class="crm-btn" wire:click="lifecycle('remove')">Rimuovi</button></div>
-            </div>
-        </x-gestionale.crm-dialog>
-    @endif
-    @if ($anonymizeInfoOpen)
-        <x-gestionale.crm-dialog title="Anonimizzazione" label="Scheda cliente" :close="'$wire.closeAnonymizeInfo()'">
-            <div class="crm-form"><p class="crm-muted">L’anonimizzazione dei dati personali non è attiva in questa versione. Nessun dato viene modificato da questa finestra.</p><div class="crm-actions"><button type="button" class="crm-btn" wire:click="closeAnonymizeInfo">Chiudi</button></div></div>
-        </x-gestionale.crm-dialog>
-    @endif
-
-    <livewire:gestionale.client-form-modal />
+    <livewire:gestionale.client-form-modal :auto-open="request()->routeIs('gestionale.clients.edit') ? $contact->id : null" />
+    <livewire:gestionale.request-form-modal :auto-open="request()->routeIs('gestionale.clients.show') && request()->boolean('nuovaRichiesta') ? (string) $contact->id : null" />
 </div>

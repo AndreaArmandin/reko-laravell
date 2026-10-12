@@ -102,14 +102,9 @@ describe('navigation', function () {
             ->and(Navigation::sectionsFor($this->scout))->not->toContain('Clienti', 'Investitori', 'Richieste');
     });
 
-    it('renders the sidebar and placeholders only for allowed sections', function () {
+    it('renders the sidebar only for allowed sections', function () {
         $this->actingAs($this->scout->user)->get(route('gestionale.home'))->assertOk()
             ->assertSee('Mappa e zone')->assertDontSee('Ricerche dei clienti');
-        $this->get(route('gestionale.section', 'mappa-e-zone'))->assertOk()->assertSee('prossime fasi');
-        $this->get(route('gestionale.section', 'impostazioni'))->assertNotFound();
-
-        $this->actingAs($this->crm->user)->get(route('gestionale.section', 'archivio-catastale'))->assertNotFound();
-        $this->actingAs($this->admin->user)->get(route('gestionale.section', 'impostazioni'))->assertOk();
     });
 });
 

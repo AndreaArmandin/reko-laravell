@@ -47,8 +47,9 @@ it('associates and unlinks an owner while keeping the ownership history visible'
         ->and($entry['holdings'][0]['reason'])->toBe('Trasferimento verificato');
 
     Livewire::test('pages::gestionale.archive.index')->set('municipalityCode', 'F205')
-        ->assertSee('census-unit-record', false)->assertSee('Storico catastale e attività')->assertSee('Trasferimento verificato')
-        ->assertDontSee('crm-cadastral-table', false);
+        ->assertSee('census-unit-record', false)->assertSee('Storico attività')
+        ->assertDontSee('crm-cadastral-table', false)
+        ->call('openOutcomeHistory', $unitId)->assertSee('Trasferimento verificato');
 });
 
 it('hides removed archive filters and ignores legacy filter values', function () {

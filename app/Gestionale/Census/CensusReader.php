@@ -143,6 +143,41 @@ final class CensusReader
             'items' => collect($ids)->map(fn ($id) => $entries->get($id))->filter()->values()->all()];
     }
 
+    /** Storico del proprietario sulle sole unità visibili al membro. */
+    public function ownerHistory(int $ownerId): array
+    {
+        $unitIds = CensusScope::units($this->m)->whereExists(fn (Builder $w) => $w->selectRaw('1')->from('ownerships as w')
+            ->whereColumn('w.cadastral_unit_id', 'o.cadastral_unit_id')->whereColumn('w.agency_id', 'o.agency_id')->where('w.contact_id', $ownerId))
+            ->distinct()->pluck('o.cadastral_unit_id')->map(fn ($id) => (int) $id)->all();
+        $entries = $unitIds === [] ? collect() : $this->entries(['unitIds' => $unitIds])->keyBy('unitId');
+        $holdings = $this->holdingsHistory($unitIds);
+        $ownershipRows = collect($holdings)->flatMap(function (array $rows, int|string $unitId) use ($ownerId, $entries) {
+            $entry = $entries->get((int) $unitId);
+
+            return collect($rows)->filter(fn (array $row) => $row['ownerId'] === $ownerId)->map(function (array $row) use ($entry) {
+                $row['reference'] = $entry
+                    ? $entry['context']['municipality'].' · F. '.$entry['context']['sheet'].' · P. '.$entry['context']['parcel'].' · Sub. '.($entry['unit']['sub'] ?: '—')
+                    : 'Riferimento catastale non disponibile';
+
+                return $row;
+            });
+        })->sortByDesc(fn (array $row) => $row['end'] ?: $row['start'])->values()->all();
+        $contact = DB::table('contacts')->where('agency_id', $this->m->agency_id)->where('id', $ownerId)->value('contact_history');
+        $contactRows = is_string($contact) ? (json_decode($contact, true) ?: []) : (array) ($contact ?? []);
+        $actorIds = collect($contactRows)->pluck('actorId')->filter(fn ($id) => is_numeric($id))->map(fn ($id) => (int) $id)->unique()->all();
+        $authors = $actorIds === [] ? collect() : DB::table('users')->whereIn('id', $actorIds)->pluck('name', 'id');
+        $contactRows = collect($contactRows)->map(function (array $row) use ($authors) {
+            $row['author'] = $authors[(int) ($row['actorId'] ?? 0)] ?? 'Operatore precedente';
+
+            return $row;
+        })->sortByDesc('at')->values()->all();
+        $outcomes = $this->outcomes($unitIds);
+        $outcomeRows = collect($outcomes)->flatMap(fn (array $rows) => collect($rows)->filter(fn (array $row) => $row['ownerId'] === $ownerId))
+            ->sortByDesc('at')->values()->all();
+
+        return ['holdings' => $ownershipRows, 'contacts' => $contactRows, 'outcomes' => $outcomeRows];
+    }
+
     /** unitLocation() di census-address.ts. */
     public static function location(array $unit, string $fallback = ''): array
     {

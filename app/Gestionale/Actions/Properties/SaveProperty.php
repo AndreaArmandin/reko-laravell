@@ -83,7 +83,7 @@ final class SaveProperty
         $address = Commands::text($value('address', $old?->address), 255);
         $city = Commands::text($value('city', $old?->city), 120);
         if ($title === '' || $address === '' || $city === '') {
-            throw new CommandRejected('Inserisci titolo, indirizzo e Comune dell’immobile.', 400);
+            throw new CommandRejected('Inserisci titolo, indirizzo e Comune dell’immobile demo.', 400);
         }
 
         $incoming = $value('features', $old?->features ?? []);
@@ -142,7 +142,7 @@ final class SaveProperty
             ->whereRaw("regexp_replace(lower(coalesce(address, '') || coalesce(civic, '') || coalesce(city, '')), '[[:space:]+()-]', '', 'g') = ?", [$this->norm($address.$civic.$city)])
             ->whereRaw("features->>'operation' = ?", [$operation])->exists();
         if ($duplicate && ($input['confirm_duplicate'] ?? false) !== true) {
-            throw new CommandRejected('Possibile immobile duplicato: indirizzo, civico e contratto già presenti. Verifica la scheda o conferma che si tratta di un immobile distinto.', 409, 'confirm_duplicate');
+            throw new CommandRejected('Possibile immobile duplicato: indirizzo, civico e contratto già presenti.', 409, 'confirm_duplicate');
         }
 
         $point = null;
@@ -170,7 +170,7 @@ final class SaveProperty
             'address' => $address,
             'civic' => $civic ?: null,
             'city' => $city,
-            'province' => strtoupper(Commands::text($value('province', $old?->province), 2)) ?: null,
+            'province' => strtoupper(Commands::text($value('province', $old?->province), 2)) ?: 'MI',
             'postal_code' => Commands::text($value('postal_code', $old?->postal_code), 12) ?: null,
             'zone' => Commands::text($value('zone', $old?->zone), 160) ?: null,
             'asking_price' => $features['price'] ?? null,
@@ -238,7 +238,7 @@ final class SaveProperty
             'start' => $date($given['start'] ?? $base['start'] ?? ''),
             'end' => $date($given['end'] ?? $base['end'] ?? ''),
             'commission' => Commands::text($given['commission'] ?? $base['commission'] ?? '', 100),
-            'reminderDays' => max(0, min(3650, (int) ($given['reminderDays'] ?? $base['reminderDays'] ?? 15))),
+            'reminderDays' => max(0, (int) (($given['reminderDays'] ?? $base['reminderDays'] ?? null) ?: 15)),
         ];
     }
 

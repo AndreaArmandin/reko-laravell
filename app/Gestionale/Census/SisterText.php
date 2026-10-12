@@ -188,9 +188,10 @@ final class SisterText
                 if ($norm($old['name']) !== $norm($person['name']) || ($old['birthDetails'] !== '' && $person['birthDetails'] !== '' && $norm($old['birthDetails']) !== $norm($person['birthDetails']))) {
                     $errors[] = "Proprietari, riga {$n}: codice fiscale ripetuto con anagrafica differente.";
                 } else {
-                    $owners[$previous] = array_merge($old, Holding::combine($old, array_merge($person, ['rawText' => $row])));
-                    if (Holding::conflictingShares($owners[$previous])) {
-                        $errors[] = "Proprietari, riga {$n}: quote differenti per lo stesso diritto. Verifica la fonte prima di salvare.";
+                    $merged = array_merge($old, Holding::combine($old, array_merge($person, ['rawText' => $row])));
+                    // Call 07/10, punto 18: stesso CF ripetuto con quote incoerenti, si tiene un solo legame (il primo).
+                    if (! Holding::conflictingShares($merged)) {
+                        $owners[$previous] = $merged;
                     }
                 }
 

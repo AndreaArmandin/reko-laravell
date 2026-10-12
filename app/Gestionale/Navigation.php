@@ -60,21 +60,19 @@ final class Navigation
                 continue;
             }
             [$label, $icon, $route] = self::SECTIONS[$key];
-            $slug = self::slug($key);
             $items[] = [
                 'key' => $key,
                 'label' => $label,
                 'icon' => $icon,
-                'href' => $route ? route($route) : route('gestionale.section', $slug),
-                'pattern' => $route ? str_replace('.index', '.*', $route) : 'gestionale.section',
-                'slug' => $slug,
+                'href' => route($route),
+                'pattern' => str_replace('.index', '.*', $route),
             ];
         }
 
         return $items;
     }
 
-    /** @return list<array{label:string,items:list<array{key:string,label:string,icon:string,href:string,pattern:string,slug:string}>}> */
+    /** @return list<array{label:string,items:list<array{key:string,label:string,icon:string,href:string,pattern:string}>}> */
     public static function groupedItems(?AgencyMembership $membership): array
     {
         $groups = [
@@ -118,22 +116,5 @@ final class Navigation
     public static function label(string $key): string
     {
         return self::SECTIONS[$key][0] ?? $key;
-    }
-
-    public static function slug(string $key): string
-    {
-        return str(self::SECTIONS[$key][0])->slug()->toString();
-    }
-
-    /** Section key from its slug (placeholder page), only among the visible ones. */
-    public static function fromSlug(?AgencyMembership $membership, string $slug): ?string
-    {
-        foreach (self::sectionsFor($membership) as $key) {
-            if (! in_array($key, self::HIDDEN, true) && self::slug($key) === $slug) {
-                return $key;
-            }
-        }
-
-        return null;
     }
 }

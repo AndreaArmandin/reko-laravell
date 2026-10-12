@@ -5,6 +5,7 @@ namespace App\Gestionale\Scouting;
 use App\Models\AgencyMembership;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 /**
  * Data of the "Mappa e zone" page: Comuni with cartography, census parcels visible to the operator,
@@ -16,6 +17,23 @@ final class ScoutingMap
     public const MAX_PARCELS = 3000;
 
     public const MAX_OUTLINES = 800;
+
+    /** Civic points in the visible viewport for the property and request location pickers. */
+    public static function addressPoints(array $bounds): array
+    {
+        if (! Schema::hasTable('address_points')) {
+            return ['type' => 'FeatureCollection', 'features' => []];
+        }
+        [$south, $west, $north, $east] = array_map('floatval', $bounds);
+        $rows = DB::select("SELECT id, street, number, ST_X(location) AS lng, ST_Y(location) AS lat
+            FROM address_points WHERE location IS NOT NULL AND location && ST_MakeEnvelope(?, ?, ?, ?, 4326)
+            ORDER BY id LIMIT 1000", [$west, $south, $east, $north]);
+
+        return ['type' => 'FeatureCollection', 'features' => array_map(fn ($row) => [
+            'type' => 'Feature', 'properties' => ['id' => (int) $row->id, 'label' => trim(implode(' ', array_filter([$row->street, $row->number])))],
+            'geometry' => ['type' => 'Point', 'coordinates' => [(float) $row->lng, (float) $row->lat]],
+        ], $rows)];
+    }
 
     /**
      * Comuni with an active catalog edition: the "inventories" of the original (municipalCartography).
@@ -81,18 +99,38 @@ final class ScoutingMap
     {
         $units = '(SELECT cu.id FROM cadastral_units cu WHERE cu.parcel_id = p.id)';
         if ($actor->role === 'admin') {
+            $terrain = Schema::hasTable('agency_terrain_acquisitions')
+                ? 'OR EXISTS (SELECT 1 FROM agency_terrain_acquisitions ta WHERE ta.agency_id = ? AND ta.parcel_id = p.id)'
+                : '';
+            $bindings = [$actor->agency_id, $actor->agency_id, $actor->agency_id, $actor->agency_id];
+            if ($terrain !== '') {
+                $bindings[] = $actor->agency_id;
+            }
+
             return ["(EXISTS (SELECT 1 FROM scouting_assignments sa WHERE sa.agency_id = ? AND (sa.parcel_id = p.id OR sa.cadastral_unit_id IN {$units}))
                 OR EXISTS (SELECT 1 FROM agency_unit_observations auo JOIN cadastral_units cuo ON cuo.id = auo.cadastral_unit_id WHERE auo.agency_id = ? AND cuo.parcel_id = p.id)
                 OR EXISTS (SELECT 1 FROM ownerships o WHERE o.agency_id = ? AND (o.parcel_id = p.id OR o.cadastral_unit_id IN {$units}))
-                OR EXISTS (SELECT 1 FROM activities ac WHERE ac.agency_id = ? AND ac.parcel_id = p.id))", [$actor->agency_id, $actor->agency_id, $actor->agency_id, $actor->agency_id]];
+                OR EXISTS (SELECT 1 FROM activities ac WHERE ac.agency_id = ? AND ac.parcel_id = p.id)
+                {$terrain})", $bindings];
         }
 
         return ["EXISTS (SELECT 1 FROM scouting_assignments sa WHERE sa.agency_id = ? AND sa.user_id = ? AND (sa.parcel_id = p.id OR sa.cadastral_unit_id IN {$units}))", [$actor->agency_id, $actor->user_id]];
     }
 
     /**
-     * Census parcels with a loaded shape, in a Comune. Filters: zoneId (point of the parcel inside the zone boundary),
-     * publicZoneId (point inside the REKO neighborhood), street (raw address), outcome (last outcome or "Nessun esito").
+     * Whether the census data of a parcel is reachable for the actor (the same scope as the map parcels):
+     * admin every parcel with an assignment, an ownership, an observation or an activity; scout only the assigned ones.
+     */
+    public static function accessible(AgencyMembership $actor, int $parcelId): bool
+    {
+        [$scope, $args] = self::censusScope($actor);
+
+        return DB::selectOne("SELECT 1 AS ok FROM parcels p WHERE p.id = ? AND {$scope}", [$parcelId, ...$args]) !== null;
+    }
+
+    /**
+     * Census parcels with a loaded shape, in a Comune. Public neighborhoods include a parcel only when
+     * more than half of its mapped area lies inside the selected boundary.
      *
      * @param  array{zoneId?: int|null, publicZoneId?: int|null, street?: string|null, outcome?: string|null}  $filters
      * @return array{parcels: list<array<string, mixed>>, addresses: list<string>, missing: int, accessible: int}
@@ -118,7 +156,7 @@ final class ScoutingMap
         $last = self::lastOutcomes($actor, $ids);
         $inside = fn (?string $geojson, array $ids) => $geojson === null || $ids === [] ? array_flip($ids) : self::covered($geojson, $ids);
         $inZone = $inside($zoneBoundary?->g, $ids);
-        $inPublic = $inside($publicZone?->g, $ids);
+        $inPublic = $publicZone?->g === null || $ids === [] ? array_flip($ids) : self::mostlyCovered($publicZone->g, $ids);
 
         $accessible = array_values(array_filter($rows, fn ($r) => true));
         $out = [];
@@ -159,6 +197,18 @@ final class ScoutingMap
         $rows = DB::select("SELECT p.id FROM parcels p JOIN municipality_catalogs mc ON mc.municipality_id = p.municipality_id
             JOIN parcel_versions pv ON pv.parcel_id = p.id AND pv.catalog_release_id = mc.catalog_release_id
             WHERE p.id IN ({$in}) AND ST_Covers(ST_SetSRID(ST_GeomFromGeoJSON(?), 4326), COALESCE((SELECT psp.location FROM parcel_search_points psp WHERE psp.parcel_id = p.id AND psp.catalog_release_id = mc.catalog_release_id), ST_PointOnSurface(pv.boundary)))", [$areaGeoJson]);
+
+        return collect($rows)->mapWithKeys(fn ($r) => [(int) $r->id => (int) $r->id])->all();
+    }
+
+    /** Parcels with more than half of their cadastral surface in a public neighborhood. @param list<int> $ids @return array<int,int> */
+    private static function mostlyCovered(string $areaGeoJson, array $ids): array
+    {
+        $in = implode(',', array_map('intval', $ids));
+        $rows = DB::select("SELECT p.id FROM parcels p JOIN municipality_catalogs mc ON mc.municipality_id = p.municipality_id
+            JOIN parcel_versions pv ON pv.parcel_id = p.id AND pv.catalog_release_id = mc.catalog_release_id
+            CROSS JOIN (SELECT ST_SetSRID(ST_GeomFromGeoJSON(?), 4326) AS boundary) zone
+            WHERE p.id IN ({$in}) AND ST_Area(ST_Intersection(pv.boundary, zone.boundary)::geography) > ST_Area(pv.boundary::geography) * 0.5", [$areaGeoJson]);
 
         return collect($rows)->mapWithKeys(fn ($r) => [(int) $r->id => (int) $r->id])->all();
     }
@@ -246,7 +296,7 @@ final class ScoutingMap
     public static function outlines(string $code, array $bounds, ?int $publicZoneId = null): array
     {
         [$s, $w, $n, $e] = $bounds;
-        $zone = $publicZoneId === null ? '' : 'AND EXISTS (SELECT 1 FROM geographic_zones z WHERE z.id = ? AND ST_Covers(z.boundary, COALESCE((SELECT psp.location FROM parcel_search_points psp WHERE psp.parcel_id = p.id AND psp.catalog_release_id = mc.catalog_release_id), ST_PointOnSurface(pv.boundary))))';
+        $zone = $publicZoneId === null ? '' : 'AND EXISTS (SELECT 1 FROM geographic_zones z WHERE z.id = ? AND ST_Area(ST_Intersection(pv.boundary, z.boundary)::geography) > ST_Area(pv.boundary::geography) * 0.5)';
         $rows = DB::select("SELECT p.id, p.cadastral_kind, p.section, p.sheet, p.number, ST_AsGeoJSON(pv.boundary, 6) AS g
             FROM parcel_versions pv JOIN municipality_catalogs mc ON mc.catalog_release_id = pv.catalog_release_id
             JOIN municipalities m ON m.id = mc.municipality_id AND m.cadastral_code = ?

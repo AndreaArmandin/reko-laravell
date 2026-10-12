@@ -2,7 +2,11 @@
 
 namespace App\Gestionale\Properties;
 
+use App\Gestionale\Activities\ActivityContext;
+use App\Gestionale\Census\SisterText;
+use App\Gestionale\Questionnaire\AnswerPresenter;
 use App\Models\AgencyMembership;
+use App\Models\AgencyUnitObservation;
 use App\Models\CadastralUnit;
 use App\Models\Contact;
 use App\Models\Property;
@@ -33,7 +37,7 @@ final class PropertyLinks
             ->join('municipalities', 'municipalities.id', '=', 'parcels.municipality_id')
             ->leftJoin(DB::raw('(SELECT DISTINCT ON (cadastral_unit_id) cadastral_unit_id, category, address_raw
                 FROM cadastral_unit_versions ORDER BY cadastral_unit_id, catalog_release_id DESC, id DESC) uv'), 'uv.cadastral_unit_id', '=', 'cadastral_units.id')
-            ->select(['cadastral_units.id', 'cadastral_units.subalterno', 'parcels.sheet', 'parcels.number', 'municipalities.name as municipality',
+            ->select(['cadastral_units.id', 'cadastral_units.subalterno', 'parcels.section', 'parcels.sheet', 'parcels.number', 'municipalities.name as municipality',
                 'uv.category', 'uv.address_raw']);
     }
 
@@ -135,13 +139,37 @@ final class PropertyLinks
         ];
     }
 
+    /**
+     * properties.tsx «Collegamenti all'archivio»: indirizzo · riferimento catastale · categoria · misura.
+     * Dati della scheda di censimento dell'agenzia, se c'è, altrimenti dell'ultima versione del catalogo
+     * (che deve essere già caricata, dalla più recente).
+     */
+    public static function unitLine(?CadastralUnit $unit, ?AgencyUnitObservation $census = null): ?string
+    {
+        $parcel = $unit?->parcel;
+        if ($parcel === null) {
+            return null;
+        }
+        $version = $unit->versions->first();
+        $address = trim((string) ($census?->address ?: $version?->address_raw));
+        $measure = $census?->consistency ?: trim(($version?->consistency !== null ? AnswerPresenter::number((float) $version->consistency) : '').' '.$version?->consistency_unit);
+
+        return implode(' · ', [
+            $address !== '' ? SisterText::normalizeAddress($address) : $parcel->municipality?->name.' · F. '.$parcel->sheet.' P. '.$parcel->number,
+            ActivityContext::parcelLabel($parcel, $unit),
+            (string) ($census?->category ?: $version?->category),
+            SisterText::formatMeasure((string) $measure),
+        ]);
+    }
+
+    /** properties.tsx SearchableLinks: Comune · indirizzo · riferimento catastale (cadastralLabel). */
     public static function unitLabel(object $unit): string
     {
         $address = trim((string) ($unit->address_raw ?? ''));
-        $parts = [$unit->municipality, $address !== '' ? $address : null,
-            'Foglio '.$unit->sheet.' · Particella '.$unit->number.($unit->subalterno ? ' · Sub '.$unit->subalterno : '').($unit->category ? ' · '.$unit->category : '')];
+        $section = (string) ($unit->section ?? '');
+        $reference = ($section !== '' && $section !== '_' ? 'Sez. '.$section.' · ' : '').'F. '.$unit->sheet.' · P. '.$unit->number.' · Sub. '.($unit->subalterno ?: '—');
 
-        return implode(' · ', array_filter($parts));
+        return implode(' · ', array_filter([$unit->municipality, $address !== '' ? SisterText::normalizeAddress($address) : null, $reference]));
     }
 
     /**

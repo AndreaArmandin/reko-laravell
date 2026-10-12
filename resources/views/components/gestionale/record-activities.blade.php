@@ -1,4 +1,4 @@
-@props(['subject' => null, 'context' => null, 'asOwner' => false, 'units' => [], 'compact' => false, 'allowCreate' => true, 'hideEmptySummary' => false, 'hideSummary' => false])
+@props(['subject' => null, 'context' => null, 'asOwner' => false, 'units' => [], 'compact' => false, 'allowCreate' => true, 'personActions' => false, 'menuLabel' => '', 'hideEmptySummary' => false, 'hideSummary' => false, 'hideHistory' => false])
 @php
     // <x-gestionale.record-activities :subject="$request" /> (cliente, richiesta, immobile, particella;
     // un contatto senza scheda cliente è un proprietario, oppure :as-owner="true").
@@ -10,7 +10,10 @@
     :context="$resolved"
     :compact="$compact"
     :allow-create="$allowCreate"
+    :person-actions="$personActions"
+    :menu-label="$menuLabel ?? ''"
     :hide-empty-summary="$hideEmptySummary"
     :hide-summary="$hideSummary"
+    :hide-history="$hideHistory"
     :key="'record-activities-'.md5(json_encode($resolved))"
 />

@@ -6,6 +6,7 @@ use App\Gestionale\Activities\ActivityAccess;
 use App\Gestionale\Activities\ActivityCatalog;
 use App\Gestionale\Activities\Notifier;
 use App\Gestionale\Audit;
+use App\Gestionale\Census\ObservedUnits;
 use App\Gestionale\CommandRejected;
 use App\Gestionale\Commands;
 use App\Gestionale\Idempotency;
@@ -237,6 +238,9 @@ final class SaveActivity
         }
         if ($amount !== null && $amount !== '' && (! is_numeric($amount) || (float) $amount < 0)) {
             throw new CommandRejected('Valore economico non valido.');
+        }
+        if (! $old && ObservedUnits::anyInactive((int) $actor->agency_id, $units)) {
+            throw new CommandRejected('Unità soppressa o eliminata: non puoi creare nuove attività.');
         }
         if ($done && $agentId !== (int) $actor->user_id && $role !== 'admin') {
             throw new CommandRejected('Solo il destinatario può completare questa attività.', 403);

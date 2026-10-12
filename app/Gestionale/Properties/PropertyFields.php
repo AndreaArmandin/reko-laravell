@@ -96,6 +96,12 @@ final class PropertyFields
         return ['id' => $id, 'label' => (string) $label, 'kind' => $kind, 'options' => array_values($options ?? [])];
     }
 
+    /** presentation.ts propertyOperationLabel */
+    public static function operationLabel(mixed $operation): string
+    {
+        return $operation === 'Acquisto' ? 'In vendita' : ($operation === 'Locazione' ? 'In affitto' : 'Operazione non indicata');
+    }
+
     /** Etichetta di un campo in scheda: labels, poi il testo della domanda, poi la chiave. */
     public static function label(string $id, ?array $question = null): string
     {
@@ -130,11 +136,11 @@ final class PropertyFields
                     $value = str_replace(',', '.', trim($value));
                 }
                 if (! is_numeric($value) || ! is_finite((float) $value)) {
-                    throw new CommandRejected('Controlla il campo '.$key.': inserisci un numero valido.', 400, 'features.'.$key);
+                    throw new CommandRejected('Controlla il campo '.$key.': serve un numero valido.', 400, 'features.'.$key);
                 }
                 $value = $value + 0;
                 if (in_array($key, self::NON_NEGATIVE, true) && $value < 0) {
-                    throw new CommandRejected('Controlla il campo '.$key.': inserisci un numero valido.', 400, 'features.'.$key);
+                    throw new CommandRejected('Controlla il campo '.$key.': serve un numero valido.', 400, 'features.'.$key);
                 }
                 $out[$key] = $value;
             } elseif (in_array($key, self::BOOLEAN, true)) {

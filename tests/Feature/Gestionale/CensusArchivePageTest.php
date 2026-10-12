@@ -12,7 +12,8 @@ it('loads the archive page and exposes SISTER import to the administrator', func
 
     Livewire::test('pages::gestionale.archive.index')
         ->assertSee('Archivio catastale')
-        ->assertSee('Esporta CF / P.IVA senza telefono · CSV')
+        ->assertDontSee('Esporta CF / P.IVA senza telefono · CSV')
+        ->set('view', 'Proprietari')->assertSee('Esporta CF / P.IVA senza telefono · CSV')
         ->assertSee('Nessuna unità censita')
         ->assertSee('Importa da SISTER')
         ->call('openSisterImport')

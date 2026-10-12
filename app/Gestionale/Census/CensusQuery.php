@@ -76,13 +76,15 @@ final class CensusQuery
         $reader = new CensusReader($this->m);
         $basicKeys = array_diff(array_keys($filters), ['municipalityCode', '_mode']);
         if ($view !== 'Proprietari' && $search === '' && $basicKeys === []
-            && ! empty($filters['municipalityCode'][0]) && empty($q['unitId']) && empty($q['parcelId']) && empty($q['ownerId'])) {
+            && ! empty($filters['municipalityCode'][0]) && empty($q['unitId']) && empty($q['parcelId']) && empty($q['ownerId'])
+            && ! TerrainParcelReader::hasInMunicipality($this->m, (string) $filters['municipalityCode'][0])) {
             return $this->runMunicipalityPage($reader, (string) $filters['municipalityCode'][0], $page, $size, $q);
         }
 
         $focus = ['municipalityCode' => $filters['municipalityCode'][0] ?? null, 'unitId' => $q['unitId'] ?? null,
             'parcelId' => $q['parcelId'] ?? null, 'ownerId' => $q['ownerId'] ?? null];
         $all = $reader->entries($focus)->all();
+        $terrainRows = $view === 'Proprietari' ? [] : TerrainParcelReader::archiveRows($this->m, $focus['municipalityCode'], $focus['parcelId']);
         $visibleOwnerIds = collect($all)->flatMap(fn ($row) => collect($row['owners'])->pluck('id'))->unique()->values()->all();
         $counts = $reader->ownerCounts($visibleOwnerIds);
 
@@ -139,14 +141,20 @@ final class CensusQuery
             if ($search === '') {
                 return true;
             }
-            $hay = implode(' ', [$r['address'], $r['parcelAddress'], $r['street'], $r['civic'], $u['category'], $c['municipality'], $c['sheet'], $c['parcel'], $c['sheet'].$c['parcel'],
-                self::reference($c, $sub), $sub, ...collect($people)->flatMap(fn ($o) => [$o['name'], $o['pid'], CensusReader::contactText($o)])->all()]);
+            // Richiesta del cliente (call 07/10, punto 7): la ricerca libera trova solo le unità con quella parola.
+            // L'indirizzo della particella vale solo se l'unità non ne ha uno proprio (una particella può affacciarsi
+            // su più vie), e i recapiti dei proprietari (che contengono indirizzi di residenza) solo per i telefoni.
+            $phoneTerm = (bool) preg_match('/^[+\d\s()-]+$/', $search) && strlen((string) preg_replace('/\D/', '', $search)) >= 6;
+            $ownAddress = trim((string) $r['address']) !== '';
+            $hay = implode(' ', [$r['address'], $ownAddress ? '' : $r['parcelAddress'], $ownAddress ? '' : $r['street'], $r['civic'], $u['category'], $c['municipality'], $c['sheet'], $c['parcel'], $c['sheet'].$c['parcel'],
+                self::reference($c, $sub), $sub, ...collect($people)->flatMap(fn ($o) => [$o['name'], $o['pid'], $phoneTerm ? CensusReader::contactText($o) : ''])->all()]);
 
             return SisterText::matches($hay, $search);
         };
 
         $selected = array_values(array_filter($all, fn ($r) => $matches($r, $requestedOwner ? collect($r['owners'])->first(fn ($o) => $o['id'] === $requestedOwner['id']) : null)));
-        usort($selected, fn ($a, $b) => $this->compareOrder($a['latest'], $b['latest'], $q) ?: self::compareAddress($a, $b));
+        $selected = [...$selected, ...array_values(array_filter($terrainRows, fn ($row) => $this->matchesTerrain($row, $filters, $q)))];
+        usort($selected, fn ($a, $b) => $this->compareOrder($a['latest'] ?? null, $b['latest'] ?? null, $q) ?: self::compareArchiveAddress($a, $b));
 
         $people = [];
         if ($view === 'Proprietari') {
@@ -236,7 +244,8 @@ final class CensusQuery
             $outcome = $latest('outcome');
             $target = (string) ($q['firstOutcome'] ?? '');
             if ($target !== '') {
-                $rows->orderByRaw('(case when ('.$outcome->toSql().') = ? then 0 else 1 end) asc', [...$outcome->getBindings(), $target]);
+                // Le unità senza esito contano come «Nessun esito» (census-query.ts compareContactOrder).
+                $rows->orderByRaw("(case when coalesce((".$outcome->toSql()."), 'Nessun esito') = ? then 0 else 1 end) asc", [...$outcome->getBindings(), $target]);
             } else {
                 $rows->orderByRaw('('.$outcome->toSql().') asc nulls first', $outcome->getBindings());
             }
@@ -262,6 +271,41 @@ final class CensusQuery
     public static function active(array $unit): bool
     {
         return ($unit['state'] ?: 'Attivo') === 'Attivo' && empty($unit['removed']);
+    }
+
+    /** Filters for a perimeter-only land record. It never receives a fabricated unit or owner. */
+    private function matchesTerrain(array $row, array $filters, array $q): bool
+    {
+        if (! empty($q['unitId']) || ! empty($q['ownerId']) || (! empty($q['parcelId']) && $row['parcelId'] !== (int) $q['parcelId'])) {
+            return false;
+        }
+        $c = $row['context'];
+        $values = ['municipality' => $c['municipality'], 'municipalityCode' => $c['code'], 'address' => $row['address'], 'civic' => '',
+            'locality' => '', 'zone' => '', 'floor' => '', 'section' => $c['section'], 'sheet' => $c['sheet'], 'parcel' => $c['parcel'],
+            'sub' => '', 'category' => '', 'state' => 'Perimetro acquisito', 'source' => 'terrain-selection', 'hasOwner' => 'No', 'hasContact' => 'No',
+            'operator' => '', 'outcome' => 'Nessun esito', 'never' => 'Sì', 'upcoming' => 'No', 'name' => '', 'lastName' => '', 'cf' => '',
+            'coownership' => 'No', 'multiOwner' => 'No', 'geometry' => 'Sì', 'withoutSub' => 'Sì', 'commercial' => '', 'activity' => '', 'date' => ''];
+        foreach ($filters as $key => $terms) {
+            if (! $terms || in_array($key, ['count', '_mode'], true)) {
+                continue;
+            }
+            $value = (string) ($values[$key] ?? '');
+            $ok = collect($terms)->contains(fn ($term) => $key === 'civic' ? SisterText::normalizeCivic($value) === SisterText::normalizeCivic($term)
+                : (in_array($key, ['address', 'locality', 'name', 'lastName', 'cf', 'commercial'], true) ? mb_stripos($value, $term) !== false : $value === $term));
+            if (! $ok) {
+                return false;
+            }
+        }
+        $search = trim((string) ($q['search'] ?? ''));
+
+        return $search === '' || SisterText::matches(implode(' ', [$row['address'], self::reference($c, null), $c['municipality'], $c['sheet'], $c['parcel']]), $search);
+    }
+
+    private static function compareArchiveAddress(array $a, array $b): int
+    {
+        return self::collate($a['address'], $b['address']) ?: self::collate($a['context']['sheet'], $b['context']['sheet'])
+            ?: self::collate($a['context']['parcel'], $b['context']['parcel'])
+            ?: self::collate($a['unit']['sub'] ?? '', $b['unit']['sub'] ?? '');
     }
 
     public static function reference(array $c, ?string $sub = null): string

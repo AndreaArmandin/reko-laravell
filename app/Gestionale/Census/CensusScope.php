@@ -6,6 +6,7 @@ use App\Models\AgencyMembership;
 use App\Models\ScoutingAssignment;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 
 /**
  * Che cosa vede ciascun ruolo nell'archivio catastale (permissions.ts visibleEntities per le particelle):
@@ -61,7 +62,19 @@ final class CensusScope
 
     public static function parcelVisible(AgencyMembership $m, int $parcelId): bool
     {
-        return self::units($m)->where('cu.parcel_id', $parcelId)->exists();
+        if (! self::canUse($m)) {
+            return false;
+        }
+        if (self::units($m)->where('cu.parcel_id', $parcelId)->exists()) {
+            return true;
+        }
+        if (! Schema::hasTable('agency_terrain_acquisitions')
+            || ! DB::table('agency_terrain_acquisitions')->where('agency_id', $m->agency_id)->where('parcel_id', $parcelId)->exists()) {
+            return false;
+        }
+
+        return $m->role === 'admin' || ($m->role === 'scout' && DB::table('scouting_assignments')->where('agency_id', $m->agency_id)
+            ->where('user_id', $m->user_id)->where('parcel_id', $parcelId)->exists());
     }
 
     /** Operatore della particella (parcelAgents): l'assegnazione per particella. */

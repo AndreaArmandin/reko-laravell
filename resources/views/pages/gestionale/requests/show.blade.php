@@ -4,7 +4,6 @@ use App\Gestionale\Actions\Requests\AnswerPropertyRequestQuestion;
 use App\Gestionale\Actions\Requests\FinishPropertyRequest;
 use App\Gestionale\Actions\Requests\SavePropertyRequest;
 use App\Gestionale\Actions\Requests\StepPropertyRequest;
-use App\Gestionale\Actions\Matches\UpdateMatchState;
 use App\Gestionale\Actions\SetRecordLifecycle;
 use App\Gestionale\CommandRejected;
 use App\Gestionale\Commands;
@@ -13,22 +12,20 @@ use App\Gestionale\Questionnaire\AnswerPresenter;
 use App\Gestionale\Questionnaire\ProfileFlow;
 use App\Gestionale\Questionnaire\Questionnaire;
 use App\Models\Contact;
-use App\Models\PropertyMatch;
 use App\Models\PropertyRequest;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Layout;
+use Livewire\Attributes\On;
 use Livewire\Component;
-use Livewire\WithPagination;
 
 /*
  * Richiesta: profilazione guidata in 5 passi (profile.tsx), salvataggio automatico di ogni risposta
  * (request.answer), punto di ripresa (request.step), conferma (request.finish), riepilogo,
  * approfondimento facoltativo e specifiche manuali; "Gestisci richiesta" (request.save);
- * archiviazione reversibile e risultati di compatibilità con gli immobili.
+ * archiviazione reversibile e abbinamenti con gli immobili (<livewire:gestionale.crm-matches>).
  */
 new #[Layout('layouts::gestionale')] class extends Component {
     use HandlesCommands;
-    use WithPagination;
 
     public PropertyRequest $request;
 
@@ -43,133 +40,30 @@ new #[Layout('layouts::gestionale')] class extends Component {
 
     public string $activeTab = 'Profilazione';
 
+    public bool $manageRequestOpen = false;
+
     public ?int $manageContactId = null;
 
-    public string $manageStatus = '';
+    public string $manageName = '';
 
-    public bool $manageRequestOpen = false;
+    public string $managePhone = '';
+
+    public string $manageEmail = '';
+
+    public string $manageStatus = '';
 
     public bool $optionalQuestionsOpen = false;
 
     public bool $specificsOpen = false;
 
-    public bool $removeRequestOpen = false;
+    public string $specificNotes = '';
 
-    public bool $confirmRemove = false;
+    /** @var list<string> */
+    public array $specificTags = [];
 
-    public string $matchMinimum = '0';
+    public string $specificSelected = '';
 
-    public string $matchStatus = 'Tutti';
-
-    public ?int $matchEvidenceId = null;
-
-    public ?int $matchStateId = null;
-
-    public array $matchStateForm = [
-        'state' => '', 'feedback' => '', 'rejection_reason' => '', 'note' => '', 'next_action' => '', 'visit_at' => '', 'confirmed' => false,
-    ];
-
-    public string $matchStateError = '';
-
-    #[Computed]
-    public function matches()
-    {
-        $minimum = in_array($this->matchMinimum, ['0', '60', '80'], true) ? (int) $this->matchMinimum : 0;
-        $status = in_array($this->matchStatus, PropertyMatch::STATUSES, true) ? $this->matchStatus : 'Tutti';
-
-        return PropertyMatch::query()->with('property')->where('agency_id', $this->request->agency_id)
-            ->where('property_request_id', $this->request->id)
-            ->whereHas('property', fn ($q) => $q->visibleTo($this->actor())->whereNull('lifecycle_state'))
-            ->when($minimum > 0, fn ($q) => $q->where('score', '>=', $minimum))
-            ->when($status !== 'Tutti', fn ($q) => $q->where('status', $status))
-            ->orderByRaw('score DESC NULLS LAST')->orderByDesc('id')->paginate(10);
-    }
-
-    public function updatedMatchMinimum(): void
-    {
-        if (! in_array($this->matchMinimum, ['0', '60', '80'], true)) {
-            $this->matchMinimum = '0';
-        }
-        $this->resetPage();
-        unset($this->matches);
-    }
-
-    public function updatedMatchStatus(): void
-    {
-        if ($this->matchStatus !== 'Tutti' && ! in_array($this->matchStatus, PropertyMatch::STATUSES, true)) {
-            $this->matchStatus = 'Tutti';
-        }
-        $this->resetPage();
-        unset($this->matches);
-    }
-
-    public function openMatchEvidence(int $matchId): void
-    {
-        $this->authorize('view', $this->request);
-        $match = PropertyMatch::query()->where('agency_id', $this->request->agency_id)
-            ->where('property_request_id', $this->request->id)
-            ->whereHas('property', fn ($q) => $q->visibleTo($this->actor())->whereNull('lifecycle_state'))
-            ->findOrFail($matchId);
-        $this->matchEvidenceId = $match->id;
-        $this->matchStateId = $this->editable ? $match->id : null;
-        $this->matchStateForm = [
-            'state' => $match->status,
-            'feedback' => (string) $match->feedback,
-            'rejection_reason' => (string) $match->rejection_reason,
-            'note' => (string) $match->note,
-            'next_action' => (string) $match->next_action,
-            'visit_at' => $match->visit_at?->format('Y-m-d\\TH:i') ?? '',
-            'confirmed' => false,
-        ];
-        $this->matchStateError = '';
-        unset($this->matchEvidence);
-    }
-
-    #[Computed]
-    public function matchEvidence(): ?PropertyMatch
-    {
-        if ($this->matchEvidenceId === null) {
-            return null;
-        }
-
-        return PropertyMatch::query()->with('property')->where('agency_id', $this->request->agency_id)
-            ->where('property_request_id', $this->request->id)
-            ->whereHas('property', fn ($q) => $q->visibleTo($this->actor())->whereNull('lifecycle_state'))
-            ->find($this->matchEvidenceId);
-    }
-
-    public function closeMatchEvidence(): void
-    {
-        $this->matchEvidenceId = null;
-        $this->matchStateId = null;
-        $this->matchStateError = '';
-        unset($this->matchEvidence);
-    }
-
-    public function saveMatchState(): void
-    {
-        $this->authorize('update', $this->request);
-        if ($this->matchStateId === null) {
-            return;
-        }
-        $match = PropertyMatch::query()->where('agency_id', $this->request->agency_id)
-            ->where('property_request_id', $this->request->id)
-            ->whereHas('property', fn ($q) => $q->visibleTo($this->actor())->whereNull('lifecycle_state'))
-            ->findOrFail($this->matchStateId);
-        try {
-            app(UpdateMatchState::class)->handle($this->actor(), $match, $this->matchStateForm);
-        } catch (CommandRejected $e) {
-            $this->matchStateError = $e->getMessage();
-
-            return;
-        }
-        $this->matchStateId = null;
-        $this->matchEvidenceId = null;
-        $this->matchStateError = '';
-        unset($this->matchEvidence);
-        unset($this->matches);
-        $this->dispatch('crm-notice', type: 'success', text: 'Stato dell’abbinamento aggiornato e registrato nell’Agenda.');
-    }
+    public mixed $specificValue = null;
 
     public function mount(PropertyRequest $propertyRequest): void
     {
@@ -197,12 +91,53 @@ new #[Layout('layouts::gestionale')] class extends Component {
     public function openManageRequest(): void
     {
         abort_unless($this->editable, 403);
+        $contact = $this->request->contact()->with(['primaryPhone', 'primaryEmail'])->first();
+        $this->manageContactId = $contact->id;
+        $this->manageName = $contact->display_name;
+        $this->managePhone = (string) $contact->primaryPhone?->value;
+        $this->manageEmail = (string) $contact->primaryEmail?->value;
+        $this->manageStatus = $this->request->status;
+        $this->resetErrorBag();
         $this->manageRequestOpen = true;
     }
 
     public function closeManageRequest(): void
     {
         $this->manageRequestOpen = false;
+        $this->resetErrorBag();
+    }
+
+    /** client-entry.tsx: digitare di nuovo il nome scollega il cliente scelto. */
+    public function updatedManageName(): void
+    {
+        $this->manageContactId = null;
+    }
+
+    public function pickClient(int $id): void
+    {
+        abort_unless($this->manageRequestOpen && $this->editable, 403);
+        $contact = Contact::query()->visibleTo($this->actor())->whereHas('clientProfile')->with(['primaryPhone', 'primaryEmail'])->findOrFail($id);
+        $this->manageContactId = $contact->id;
+        $this->manageName = $contact->display_name;
+        $this->managePhone = (string) $contact->primaryPhone?->value;
+        $this->manageEmail = (string) $contact->primaryEmail?->value;
+        $this->resetErrorBag();
+        unset($this->manageSuggestions);
+    }
+
+    /** Clienti già presenti: da 2 caratteri, al massimo 6, tra quelli visibili all'operatore. */
+    #[Computed]
+    public function manageSuggestions()
+    {
+        $term = trim($this->manageName);
+        if ($this->manageContactId !== null || mb_strlen($term) < 2) {
+            return collect();
+        }
+        $like = '%'.str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $term).'%';
+
+        return Contact::query()->visibleTo($this->actor())->whereHas('clientProfile')
+            ->where(fn ($q) => $q->where('display_name', 'ilike', $like)->orWhereHas('channels', fn ($c) => $c->where('value', 'ilike', $like)))
+            ->with(['primaryPhone', 'primaryEmail'])->orderBy('display_name')->limit(6)->get();
     }
 
     public function openOptionalQuestions(): void
@@ -219,25 +154,75 @@ new #[Layout('layouts::gestionale')] class extends Component {
     public function openSpecifics(): void
     {
         abort_unless($this->editable && Questionnaire::hasAnswer($this->request->criteria['operation'] ?? null), 403);
+        $criteria = $this->request->criteria;
+        $this->specificNotes = (string) ($criteria['notes'] ?? '');
+        $this->specificTags = array_values((array) ($criteria['tags'] ?? []));
+        $this->specificSelected = '';
+        $this->specificValue = null;
+        $this->resetErrorBag();
         $this->specificsOpen = true;
     }
 
     public function closeSpecifics(): void
     {
         $this->specificsOpen = false;
+        $this->resetErrorBag();
     }
 
-    public function openRemoveRequest(): void
+    /** Specifiche manuali: domande fuori dal percorso guidato, senza tag e senza l'approfondimento facoltativo. */
+    #[Computed]
+    public function specificQuestions(): array
     {
-        abort_unless($this->actor()->isAdmin() && $this->request->lifecycle_state !== 'removed', 403);
-        $this->confirmRemove = false;
-        $this->removeRequestOpen = true;
+        return array_values(array_filter($this->questionnaire->manual($this->request->criteria),
+            fn ($q) => $q['id'] !== 'tags' && ! in_array($q['id'], ProfileFlow::OPTIONAL_IDS, true)));
     }
 
-    public function closeRemoveRequest(): void
+    public function selectSpecific(string $id): void
     {
-        $this->removeRequestOpen = false;
-        $this->confirmRemove = false;
+        $question = array_column($this->specificQuestions, null, 'id')[$id] ?? null;
+        $this->specificSelected = $question['id'] ?? '';
+        $this->specificValue = $question ? AnswerPresenter::toField($question, $this->request->criteria[$id] ?? null) : null;
+    }
+
+    public function updatedSpecificSelected(string $id): void
+    {
+        $this->selectSpecific($id);
+    }
+
+    public function clearSpecific(): void
+    {
+        $question = array_column($this->specificQuestions, null, 'id')[$this->specificSelected] ?? null;
+        $this->specificValue = $question ? AnswerPresenter::toField($question, null) : null;
+    }
+
+    /** "Salva specifiche e note": note, tag e specifica scelta, ognuno con il suo toast. */
+    public function saveSpecifics(): void
+    {
+        abort_unless($this->editable, 403);
+        $criteria = $this->request->criteria;
+        $steps = [];
+        if ($this->specificNotes !== (string) ($criteria['notes'] ?? '')) {
+            $steps[] = [['question_id' => 'notes', 'value' => trim($this->specificNotes) ?: null], 'Note della richiesta salvate'];
+        }
+        if (array_values($this->specificTags) !== array_values((array) ($criteria['tags'] ?? []))) {
+            $steps[] = [['question_id' => 'tags', 'value' => $this->specificTags ?: null], 'Tag salvati. Abbinamenti aggiornati.'];
+        }
+        $question = array_column($this->specificQuestions, null, 'id')[$this->specificSelected] ?? null;
+        if ($question) {
+            $steps[] = [[
+                'question_id' => $question['id'], 'value' => AnswerPresenter::fromField($question, $this->specificValue),
+                'classification' => $this->request->classifications[$question['id']] ?? $question['classification'] ?? 'Preferibile',
+            ], 'Specifica salvata. Abbinamenti aggiornati.'];
+        }
+        foreach ($steps as [$input, $message]) {
+            $fresh = $this->command(fn () => app(AnswerPropertyRequestQuestion::class)->handle($this->actor(), $this->request,
+                [...$input, 'next_step' => $this->request->step_id, 'expected_updated_at' => $this->revision]), $message);
+            if (! $fresh) {
+                return;
+            }
+            $this->sync($fresh);
+        }
+        $this->specificsOpen = false;
     }
 
     private function sync(?PropertyRequest $fresh = null): void
@@ -250,9 +235,7 @@ new #[Layout('layouts::gestionale')] class extends Component {
         foreach ($this->questionnaire->questions() as $q) {
             $this->answers[$q['id']] = AnswerPresenter::toField($q, $this->request->criteria[$q['id']] ?? null);
         }
-        $this->manageContactId = $this->request->contact_id;
-        $this->manageStatus = $this->request->status;
-        unset($this->groups, $this->progress);
+        unset($this->groups, $this->progress, $this->specificQuestions);
     }
 
     #[Computed]
@@ -279,12 +262,6 @@ new #[Layout('layouts::gestionale')] class extends Component {
         return auth()->user()->can('update', $this->request);
     }
 
-    #[Computed]
-    public function clients()
-    {
-        return Contact::query()->visibleTo($this->actor())->whereHas('clientProfile')->orderBy('display_name')->get(['id', 'display_name']);
-    }
-
     /** Autosave: one request.answer per changed answer (650 ms debounce in the inputs). */
     public function updatedAnswers(mixed $value, string $key): void
     {
@@ -300,28 +277,52 @@ new #[Layout('layouts::gestionale')] class extends Component {
         }
     }
 
-    public function classify(string $id, string $classification): void
+    /** Il clic sulla mappa sceglie il punto della ricerca (location-map.tsx): lo salva come risposta. */
+    #[On('map-point-picked')]
+    public function pickPoint(string $key = '', mixed $lat = null, mixed $lng = null): void
     {
-        $this->save($id, $classification);
+        if (! $this->editable || ! is_numeric($lat) || ! is_numeric($lng) || abs((float) $lat) > 90 || abs((float) $lng) > 180) {
+            return;
+        }
+        $merge = function (mixed $current) use ($lat, $lng): array {
+            $current = is_array($current) ? $current : [];
+
+            return [...$current, 'label' => 'Punto scelto sulla mappa', 'lat' => (string) $lat, 'lng' => (string) $lng,
+                'radius' => (string) (($current['radius'] ?? '') !== '' ? $current['radius'] : 2)];
+        };
+
+        if (str_starts_with($key, 'pick-answers.')) {
+            $id = substr($key, strlen('pick-answers.'));
+            if (($this->questionnaire->question($id)['type'] ?? null) === 'zone') {
+                $this->answers[$id] = $merge($this->answers[$id] ?? null);
+                $this->save($id);
+            }
+        } elseif ($key === 'pick-specificValue' && $this->specificsOpen) {
+            $question = array_column($this->specificQuestions, null, 'id')[$this->specificSelected] ?? null;
+            if (($question['type'] ?? null) === 'zone') {
+                $this->specificValue = $merge($this->specificValue);
+            }
+        }
     }
 
-    private function save(string $id, ?string $classification = null): void
+    private function save(string $id): void
     {
         $question = $this->questionnaire->question($id);
         if (! $question || ! $this->editable) {
             return;
         }
         $value = AnswerPresenter::fromField($question, $this->answers[$id] ?? null);
-        if ($classification === null && $value === ($this->request->criteria[$id] ?? null)) {
+        if ($value === ($this->request->criteria[$id] ?? null)) {
             return;
         }
         $this->resetErrorBag();
         try {
-            $fresh = app(AnswerPropertyRequestQuestion::class)->handle($this->actor(), $this->request, array_filter([
-                'question_id' => $id, 'value' => $value, 'classification' => $classification,
+            $fresh = app(AnswerPropertyRequestQuestion::class)->handle($this->actor(), $this->request, [
+                'question_id' => $id, 'value' => $value,
                 'next_step' => $this->review ? 'review' : $this->group, 'expected_updated_at' => $this->revision,
-            ], fn ($v, $k) => $k === 'value' || $v !== null, ARRAY_FILTER_USE_BOTH));
+            ]);
             $this->sync($fresh);
+            $this->dispatch('crm-notice', type: 'success', text: 'Risposta salvata automaticamente');
         } catch (CommandRejected $e) {
             $this->addError('answers.'.$id, $e->getMessage());
             if ($e->status() === 409) {
@@ -334,7 +335,7 @@ new #[Layout('layouts::gestionale')] class extends Component {
     {
         $target = collect($this->groups)->first(fn ($g) => $g['id'] === $id || in_array($id, array_column($g['questions'], 'id'), true))['id']
             ?? ProfileFlow::groupId($this->questionnaire, $this->request->criteria, $id);
-        $fresh = $this->command(fn () => app(StepPropertyRequest::class)->handle($this->actor(), $this->request, $target, $this->revision));
+        $fresh = $this->command(fn () => app(StepPropertyRequest::class)->handle($this->actor(), $this->request, $target, $this->revision), 'Punto di ripresa salvato');
         if ($fresh) {
             $this->sync($fresh);
             $this->group = $target;
@@ -377,23 +378,47 @@ new #[Layout('layouts::gestionale')] class extends Component {
         }
     }
 
+    /** RequestForm (clients.tsx): cambio di cliente e gestione della richiesta. */
     public function manage(): void
     {
+        $this->resetErrorBag();
+        if ($this->manageContactId === null) {
+            $this->addError('manage', trim($this->manageName) === ''
+                ? 'Inserisci il nome del cliente.'
+                : 'Per cambiare cliente, digita il nome e apri una scheda già presente tra i suggerimenti.');
+
+            return;
+        }
         $fresh = $this->command(fn () => app(SavePropertyRequest::class)->handle($this->actor(), [
             'contact_id' => $this->manageContactId, 'status' => $this->manageStatus, 'expected_updated_at' => $this->revision,
-        ], $this->request), 'Richiesta aggiornata.');
+        ], $this->request), 'Modifica salvata nell’archivio');
         if ($fresh) {
-            $this->sync($fresh);
+            $this->sync($fresh->unsetRelation('contact'));
             $this->manageRequestOpen = false;
         }
     }
 
-    public function lifecycle(string $mode): void
+    /** Azioni di <x-gestionale.crm-lifecycle>: archivia e ripristina sono reversibili, "Rimuovi dalle liste" è del Responsabile. */
+    public function archive(int $id): void
     {
-        $done = $this->command(fn () => app(SetRecordLifecycle::class)->handle($this->actor(), $this->request, $mode, $this->confirmRemove),
-            ['archive' => 'Richiesta archiviata.', 'remove' => 'Richiesta rimossa dalle liste.', 'restore' => 'Richiesta ripristinata.'][$mode] ?? null);
+        $this->changeLifecycle($id, 'archive', 'Scheda archiviata. Puoi annullare con “Ripristina”.');
+    }
+
+    public function restore(int $id): void
+    {
+        $this->changeLifecycle($id, 'restore', 'Scheda ripristinata');
+    }
+
+    public function remove(int $id): void
+    {
+        $this->changeLifecycle($id, 'remove', 'Scheda rimossa dalla lista. Puoi ripristinarla dagli archiviati.', true);
+    }
+
+    private function changeLifecycle(int $id, string $mode, string $success, bool $confirmed = false): void
+    {
+        abort_unless($id === $this->request->id, 404);
+        $done = $this->command(fn () => app(SetRecordLifecycle::class)->handle($this->actor(), $this->request, $mode, $confirmed), $success);
         if ($done) {
-            $this->closeRemoveRequest();
             $this->sync($this->request->fresh());
         }
     }
@@ -407,137 +432,97 @@ new #[Layout('layouts::gestionale')] class extends Component {
     $current = $groups[$index];
     $progress = $this->progress;
     $optional = App\Gestionale\Questionnaire\ProfileFlow::optionalQuestions($this->questionnaire, $criteria);
-    $guidedIds = array_merge(...array_map(fn ($g) => array_column($g['questions'], 'id'), $groups));
-    $specifics = array_values(array_filter($this->questionnaire->manual($criteria),
-        fn ($q) => $q['id'] !== 'tags' && ! in_array($q['id'], App\Gestionale\Questionnaire\ProfileFlow::OPTIONAL_IDS, true) && ! in_array($q['id'], $guidedIds, true)));
-    $archived = array_values(array_filter($this->questionnaire->questions(),
-        fn ($q) => ($q['collection'] ?? '') === 'archived' && App\Gestionale\Questionnaire\Questionnaire::hasAnswer($criteria[$q['id']] ?? null)));
-    $ready = collect($current['questions'])->every(fn ($q) => $q['skippable'] && $q['id'] !== 'operation' || App\Gestionale\Questionnaire\Questionnaire::hasAnswer($criteria[$q['id']] ?? null));
     $editable = $this->editable;
 @endphp
 
 <div>
-    <a class="crm-back" href="{{ route('gestionale.requests.index') }}" wire:navigate>← Tutte le richieste</a>
-    <header class="crm-page-head">
+    <a class="crm-back" href="{{ route('gestionale.requests.index') }}" wire:navigate><x-gestionale.lucide name="arrow-left" :size="16" />Tutte le richieste</a>
+    <div class="crm-page-head">
         <div>
-            <p class="proto-eyebrow">Richiesta del cliente</p>
+            <p class="proto-eyebrow">REKO Gestionale</p>
             <h1>{{ $request->title }}</h1>
-            <div class="crm-inline-links">
-                <x-gestionale.crm-pill>{{ $request->status }}</x-gestionale.crm-pill>
-                @if ($request->lifecycle_state)<x-gestionale.crm-pill>{{ $request->lifecycle_state === 'removed' ? 'Rimossa dalle liste' : 'Archiviata' }}</x-gestionale.crm-pill>@endif
-                @if (! $request->finished)<span>Completa dopo · il profilo resta salvato e riprende dal punto lasciato.</span>@endif
-            </div>
         </div>
         @if ($editable)
-            <div class="crm-actions"><button type="button" class="crm-btn secondary" wire:click="openManageRequest">Gestisci richiesta</button></div>
+            <div class="crm-actions"><button type="button" class="crm-btn secondary" wire:click="openManageRequest"><x-gestionale.lucide name="pencil" :size="16" />Gestisci richiesta</button></div>
         @endif
-    </header>
+    </div>
 
-    @if (App\Gestionale\Properties\TestRecords::isTestClient($request->contact))
-        <div class="crm-contact-warning" role="note">TEST · Richiesta collegata a una scheda cliente di prova.</div>
+    @if (! $request->finished)
+        <button type="button" class="crm-btn secondary" wire:click="selectTab('Profilazione')">Completa dopo · apri il profilo completo</button>
     @endif
 
-    <details class="crm-record-management">
-        <summary>Archiviazione della richiesta</summary>
-        <p class="crm-muted">Operazioni reversibili: risposte e storico restano conservati.</p>
-        <div class="crm-actions">
-            @if ($request->lifecycle_state)
-                <button class="crm-btn secondary" type="button" wire:click="lifecycle('restore')">Ripristina</button>
-            @elseif (auth()->user()->can('archive', $request))
-                <button class="crm-btn secondary" type="button" wire:click="lifecycle('archive')">Archivia</button>
-            @endif
-            @if ($this->actor()->isAdmin() && $request->lifecycle_state !== 'removed')
-                <button class="crm-btn secondary" type="button" wire:click="openRemoveRequest">Rimuovi dalle liste</button>
-            @endif
-        </div>
-    </details>
+    @if (App\Gestionale\Properties\TestRecords::isTestClient($request->contact))
+        <p class="crm-contact-warning">TEST · Richiesta collegata a una scheda di prova.</p>
+    @endif
 
-    <div class="crm-request-meta">
-        <a class="crm-link" href="{{ route('gestionale.clients.show', $request->contact_id) }}" wire:navigate>Apri scheda cliente · {{ $request->contact->display_name }}</a>
-    </div>
+    <details class="crm-record-management" wire:ignore.self>
+        <summary>Archiviazione della richiesta</summary>
+        <x-gestionale.crm-lifecycle kind="request" :id="$request->id" :state="$request->lifecycle_state" :at="$request->lifecycle_at" :admin="$this->actor()->isAdmin()" />
+    </details>
 
     <x-gestionale.record-activities :context="['contact_id' => $request->contact_id, 'property_request_id' => $request->id]" />
 
+    <div class="crm-request-meta">
+        <a class="crm-link" href="{{ route('gestionale.clients.show', $request->contact_id) }}" wire:navigate>Apri scheda cliente</a>
+    </div>
+
     <nav class="crm-tabs" aria-label="Scheda richiesta">
         @foreach (['Profilazione', 'Abbinamenti', 'Cronologia'] as $tab)
-            <button type="button" wire:click="selectTab('{{ $tab }}')" @if ($activeTab === $tab) aria-current="page" @endif @if ($tab === 'Abbinamenti' && ! $operationKnown) disabled @endif>{{ $tab }}</button>
+            <button type="button" wire:click="selectTab('{{ $tab }}')" @if ($activeTab === $tab) aria-current="page" @endif @disabled($tab === 'Abbinamenti' && ! $operationKnown)><x-gestionale.lucide :name="$tab === 'Abbinamenti' ? 'sparkles' : 'clipboard-list'" :size="16" />{{ $tab }}</button>
         @endforeach
     </nav>
 
-    @error('command') <p class="crm-error" role="alert">{{ $message }}</p> @enderror
-
     @if ($activeTab === 'Profilazione')
     <section class="crm-profile">
-        <div class="flex flex-wrap items-center justify-between gap-3">
-            <div class="crm-profile-top">
-                <div><p class="proto-eyebrow">Profilazione rapida</p><h2>Le esigenze del cliente.</h2></div>
-                <x-gestionale.crm-pill>{{ $progress['answered'] }}/{{ $progress['total'] }} risposte del percorso base</x-gestionale.crm-pill>
-            </div>
+        <div class="crm-profile-top">
+            <div><p class="proto-eyebrow">Profilazione rapida</p><h2>Le esigenze del cliente.</h2></div>
+            <x-gestionale.crm-pill>{{ $progress['answered'] }}/{{ $progress['total'] }} risposte del percorso base</x-gestionale.crm-pill>
         </div>
         <details class="crm-context-help">
             <summary>Come compilare la richiesta</summary>
             <p>Raccogli ciò che cerca il cliente. Indica metri quadri e camere da letto, non vani catastali. I campi facoltativi possono restare vuoti: negli abbinamenti saranno segnalati i dati da verificare.</p>
         </details>
+        <div class="crm-profile-tools">
+            <p class="crm-profile-intro">Cinque passaggi per le esigenze del cliente. Situazione abitativa e mutuo sono nell’Approfondimento facoltativo.</p>
+            @if ($optional !== [])
+                <button type="button" class="crm-btn secondary" wire:click="openOptionalQuestions" wire:loading.attr="disabled" @disabled(! $operationKnown || ! $editable)>Approfondimento facoltativo{{ collect($optional)->contains(fn ($q) => App\Gestionale\Questionnaire\Questionnaire::hasAnswer($criteria[$q['id']] ?? null)) ? ' · dati già presenti' : '' }}</button>
+            @endif
+        </div>
         <div class="crm-progress" role="progressbar" aria-label="Completezza del percorso base" aria-valuenow="{{ $progress['percent'] }}" aria-valuemin="0" aria-valuemax="100"><span style="width: {{ $progress['percent'] }}%"></span></div>
-        @if ($optional !== [])
-            <div class="crm-profile-tools"><p class="crm-profile-intro">Cinque passaggi per le esigenze del cliente. Situazione abitativa e mutuo sono nell’approfondimento facoltativo.</p><button class="crm-btn secondary" type="button" wire:click="openOptionalQuestions" @disabled(! $operationKnown)>Approfondimento facoltativo{{ collect($optional)->contains(fn ($q) => App\Gestionale\Questionnaire\Questionnaire::hasAnswer($criteria[$q['id']] ?? null)) ? ' · dati già presenti' : '' }}</button></div>
-        @endif
 
         @if (! $review)
             <div class="crm-question-nav">
-                <button class="crm-link" type="button" wire:click="back" @disabled($index === 0)>← Indietro</button>
+                <button class="crm-link" type="button" wire:click="back" wire:loading.attr="disabled" @disabled($index === 0)><x-gestionale.lucide name="arrow-left" :size="16" />Indietro</button>
                 <span>Passo {{ $index + 1 }} di {{ count($groups) }}</span>
-                <button class="crm-link" type="button" wire:click="openReview" @disabled(! $operationKnown)>Riepilogo</button>
+                <button class="crm-link" type="button" wire:click="openReview" wire:loading.attr="disabled" @disabled(! $operationKnown)>Riepilogo</button>
             </div>
-
-            <div class="crm-question">
-                <h2>{{ $current['title'] }}</h2>
-                @if (! $operationKnown && $current['id'] !== 'operation')
-                    <p class="crm-info">Scegli prima Acquisto o Locazione.</p>
-                @endif
-                @foreach ($current['questions'] as $question)
-                    @include('gestionale.partials.question', ['question' => $question, 'disabled' => ! $editable || (! $operationKnown && $question['id'] !== 'operation')])
-                @endforeach
-                @if ($editable)
-                    <div class="crm-question-actions">
-                        @if ($current['id'] === 'notes')
-                            <button class="crm-btn secondary" type="button" wire:click="openSpecifics">Altre specifiche facoltative</button>
-                        @endif
-                        <button class="crm-btn" type="button" wire:click="advance" @disabled(! $ready)>
-                            {{ $current['id'] === 'notes' ? 'Concludi e vedi il riepilogo' : 'Continua' }}
-                        </button>
-                    </div>
-                @endif
-            </div>
+            @include('gestionale.partials.question-group', ['title' => $current['title'], 'questions' => $current['questions'], 'advance' => $editable ? ($current['id'] === 'notes' ? 'Concludi e vedi il riepilogo' : 'Continua') : null])
+            @if ($current['id'] === 'notes' && $editable)
+                <div class="crm-finish"><button type="button" class="crm-btn secondary" wire:click="openSpecifics" wire:loading.attr="disabled">Altre specifiche facoltative</button></div>
+            @endif
         @else
             @php
+                $reviewQuestions = collect($groups)->flatMap(fn ($g) => $g['questions'])->filter(fn ($q) => $q['id'] !== 'tags');
                 $missing = $progress['total'] - $progress['answered'];
+                $firstMissing = $reviewQuestions->first(fn ($q) => ! App\Gestionale\Questionnaire\Questionnaire::hasAnswer($criteria[$q['id']] ?? null));
             @endphp
-            <div class="crm-completion" role="status"><span aria-hidden="true">✓</span><div><p><strong>{{ $missing > 0 ? 'Salvato · '.$missing.($missing === 1 ? ' risposta ancora da definire' : ' risposte ancora da definire') : 'Salvato · tutte le risposte del percorso base sono presenti' }}</strong></p><small>I campi facoltativi possono restare da definire; gli abbinamenti useranno solo i dati disponibili.</small></div></div>
-            @php
-                $firstMissing = collect($groups)->flatMap(fn ($g) => $g['questions'])->first(fn ($q) => $q['id'] !== 'tags' && ! App\Gestionale\Questionnaire\Questionnaire::hasAnswer($criteria[$q['id']] ?? null));
-            @endphp
+            <div class="crm-completion"><x-gestionale.lucide name="check" :size="22" /><div><p>{{ $missing > 0 ? 'Salvato · '.$missing.($missing === 1 ? ' risposta ancora da definire' : ' risposte ancora da definire') : 'Salvato · tutte le risposte del percorso base sono presenti' }}</p>@if ($firstMissing && $editable)<button type="button" class="crm-link" wire:click="goStep('{{ $firstMissing['id'] }}')">Completa le risposte mancanti</button>@endif <small>I campi facoltativi possono restare da definire; gli abbinamenti useranno solo i dati disponibili.</small></div></div>
+            <div class="crm-section-head"><h2>Riepilogo delle preferenze</h2></div>
             @if ($editable)
                 <div class="crm-actions">
-                    @if ($firstMissing)
-                        <button class="crm-btn secondary" type="button" wire:click="goStep('{{ $firstMissing['id'] }}')">Completa le risposte mancanti</button>
-                    @endif
-                    <button class="crm-btn secondary" type="button" wire:click="goStep('{{ $groups[0]['id'] }}')">Modifica parametri richiesta</button>
+                    <button class="crm-btn secondary" type="button" wire:click="goStep('{{ $groups[0]['id'] }}')"><x-gestionale.lucide name="pencil" :size="15" />Modifica parametri richiesta</button>
                     <button class="crm-link" type="button" wire:click="openSpecifics">Note e tag</button>
                 </div>
             @endif
-            @if (! empty($criteria['tags']))
-                <div class="crm-inline-links">@foreach ($criteria['tags'] as $tag)<x-gestionale.crm-pill>{{ $tag }}</x-gestionale.crm-pill>@endforeach</div>
-            @endif
-            <div class="crm-section-head"><h2>Riepilogo delle preferenze</h2></div>
+            <x-gestionale.crm-tags :value="$criteria['tags'] ?? null" />
             <div class="crm-review-grid">
-                @foreach (collect($groups)->flatMap(fn ($g) => $g['questions'])->filter(fn ($q) => $q['id'] !== 'tags') as $q)
+                @foreach ($reviewQuestions as $q)
                     <button type="button" @if ($editable) wire:click="goStep('{{ $q['id'] }}')" @endif wire:key="rv-{{ $q['id'] }}">
                         <span>
                             <small>{{ App\Gestionale\Questionnaire\AnswerPresenter::questionLabel($q) }}</small>
                             <strong>{{ App\Gestionale\Questionnaire\AnswerPresenter::answerLabel($q['id'], $criteria[$q['id']] ?? null) }}</strong>
                         </span>
-                        <span aria-hidden="true">✎</span>
+                        <x-gestionale.lucide name="pencil" :size="15" />
                     </button>
                 @endforeach
             </div>
@@ -545,175 +530,106 @@ new #[Layout('layouts::gestionale')] class extends Component {
                 <button class="crm-btn" type="button" wire:click="finish">Conferma le preferenze disponibili</button>
             @endif
         @endif
+        <p class="crm-operator-note">* Per l’operatore: più aiuti il cliente a essere preciso, più la richiesta sarà utile e gli abbinamenti pertinenti.</p>
     </section>
 
     @elseif ($activeTab === 'Abbinamenti')
     <section class="crm-panel">
-        <div class="crm-section-head"><div><h2>Immobili da confrontare con la richiesta</h2><p class="crm-muted">Punteggio e attendibilità sono distinti. Un requisito critico resta evidenziato, anche con un punteggio alto.</p></div><x-gestionale.crm-pill>{{ $this->matches->total() }} abbinamenti</x-gestionale.crm-pill></div>
-        <div class="crm-toolbar">
-            <label class="crm-field"><span>Compatibilità minima</span><select wire:model.live="matchMinimum"><option value="0">Tutti, anche da valutare</option><option value="60">Da 60 / 100</option><option value="80">Da 80 / 100</option></select></label>
-            <label class="crm-field"><span>Stato abbinamento</span><select wire:model.live="matchStatus"><option value="Tutti">Tutti</option>@foreach (App\Models\PropertyMatch::STATUSES as $status)<option value="{{ $status }}">{{ $status }}</option>@endforeach</select></label>
-            <span>{{ $this->matches->total() }} abbinamenti · ordinati per compatibilità</span>
-        </div>
-        <div class="crm-match-list">
-        @forelse ($this->matches as $match)
-            @php
-                $comparisons = collect($match->result['comparisons'] ?? []);
-                $critical = $comparisons->filter(fn ($item) => in_array($item['classification'] ?? '', ['Indispensabile', 'Da escludere'], true));
-                $failedCritical = $critical->where('status', 'missing')->count();
-                $unknownCritical = $critical->where('status', 'unknown')->count();
-                $primaryReason = $comparisons->first(fn ($item) => ($item['status'] ?? '') === 'missing' && in_array($item['classification'] ?? '', ['Indispensabile', 'Da escludere'], true))
-                    ?? $comparisons->first(fn ($item) => ($item['status'] ?? '') === 'unknown' && in_array($item['classification'] ?? '', ['Indispensabile', 'Da escludere'], true));
-                $primaryReasonText = $primaryReason
-                    ? (($primaryReason['status'] === 'unknown' ? 'Dato decisivo da verificare' : ($primaryReason['classification'] === 'Indispensabile' ? 'Requisito indispensabile non soddisfatto' : 'Elemento da escludere presente')).': '.$primaryReason['label'])
-                    : collect($match->result['reasons'] ?? [])->first();
-            @endphp
-            <article class="crm-match-card">
-                <div class="crm-score {{ $match->result['conditional'] ?? false ? 'conditional' : '' }} {{ $match->score === null ? 'unknown' : '' }}" title="Il punteggio considera solo i dati confrontabili. Verifica anche i requisiti e i dati mancanti."><strong>{{ $match->score !== null ? number_format((float) $match->score, 0) : '—' }}</strong>@if ($match->score !== null)<span>/ 100</span>@endif<small>Dati confrontati</small></div>
-                <div class="crm-grow"><div class="crm-between"><a class="crm-title-link" href="{{ route('gestionale.properties.show', $match->property) }}" wire:navigate>{{ $match->property?->title ?? 'Immobile' }}</a><x-gestionale.crm-pill>{{ $match->status }}</x-gestionale.crm-pill></div>
-                    <p>{{ collect([$match->property?->address, $match->property?->city])->filter()->unique()->join(' · ') }}</p>
-                    <div class="crm-match-indicators">
-                        @if ($failedCritical > 0)<x-gestionale.crm-pill>{{ 'Requisiti non rispettati: '.$failedCritical }}</x-gestionale.crm-pill>@endif
-                        @if ($unknownCritical > 0)<x-gestionale.crm-pill>{{ 'Dati decisivi da verificare: '.$unknownCritical }}</x-gestionale.crm-pill>@endif
-                        @if ($failedCritical === 0 && $unknownCritical === 0)<x-gestionale.crm-pill>{{ $match->score === null ? 'Da valutare' : 'Confronto disponibile' }}</x-gestionale.crm-pill>@endif
-                        <span>{{ (int) ($match->result['compared'] ?? 0) }} criteri confrontati · {{ max(0, (int) ($match->result['answered'] ?? 0) - (int) ($match->result['compared'] ?? 0)) }} da verificare</span>
-                    </div>
-                    @if ($primaryReasonText)<p class="crm-muted">{{ App\Gestionale\Questionnaire\AnswerPresenter::operatorReason($primaryReasonText) }}@if (count($match->result['reasons'] ?? []) > 1) · altri {{ count($match->result['reasons']) - 1 }} dettagli @endif</p>@endif
-                </div>
-                <button class="crm-btn secondary" type="button" wire:click="openMatchEvidence({{ $match->id }})">Apri confronto</button>
-            </article>
-        @empty
-            <div class="crm-empty">@if ($matchMinimum !== '0' || $matchStatus !== 'Tutti')Nessun abbinamento con questi filtri. Abbassa la soglia o scegli tutti gli stati.@else Nessun immobile in portafoglio compatibile per questa richiesta. Gli abbinamenti si aggiornano quando cambiano le preferenze o il portafoglio.@endif</div>
-        @endforelse
-        </div>
-        {{ $this->matches->links() }}
+        <h2>Immobili da confrontare con la richiesta</h2>
+        <p class="crm-muted">Punteggio e attendibilità sono distinti. Un requisito critico resta evidenziato, anche con un punteggio alto.</p>
+        <livewire:gestionale.crm-matches :request-id="$request->id" :key="'request-matches-'.$request->id" />
     </section>
     @else
-        <section class="crm-panel"><h2>Cronologia</h2><x-gestionale.activity-timeline :activities="\App\Gestionale\Activities\ActivityContext::activities($this->actor(), ['property_request_id' => $request->id])" scope="request-{{ $request->id }}" order="recent" /></section>
-    @endif
-
-    @if ($this->matchEvidence)
-        @php
-            $evidence = $this->matchEvidence;
-            $result = $evidence->result ?? [];
-            $comparisons = collect($result['comparisons'] ?? []);
-            $critical = $comparisons->filter(fn ($item) => in_array($item['classification'] ?? '', ['Indispensabile', 'Da escludere'], true));
-            $failedCritical = $critical->where('status', 'missing')->count();
-            $unknownCritical = $critical->where('status', 'unknown')->count();
-        @endphp
-        <x-gestionale.crm-dialog title="Valuta l’abbinamento" label="Confronto tra richiesta e immobile" wide :close="'$wire.closeMatchEvidence()'">
-            <div class="crm-dialog-summary">
-                <div class="crm-score {{ $result['conditional'] ?? false ? 'conditional' : '' }} {{ $evidence->score === null ? 'unknown' : '' }}"><strong>{{ $evidence->score !== null ? number_format((float) $evidence->score, 0) : '—' }}</strong>@if ($evidence->score !== null)<span>/ 100</span>@endif<small>Dati confrontati</small></div>
-                <div><h3>{{ $evidence->property?->title ?? 'Immobile' }}</h3><p>{{ $evidence->property?->address }} · {{ $evidence->property?->city }}</p><x-gestionale.crm-pill>{{ $evidence->status }}</x-gestionale.crm-pill>
-                    <p>Attendibilità {{ strtolower($result['confidence'] ?? 'indicativa') }} · versione {{ $result['version'] ?? 1 }}</p>
-                    <p>{{ (int) ($result['compared'] ?? 0) }} criteri confrontati · {{ max(0, (int) ($result['answered'] ?? 0) - (int) ($result['compared'] ?? 0)) }} da verificare
-                        @if ($failedCritical > 0) · requisiti non rispettati: {{ $failedCritical }}@endif
-                        @if ($unknownCritical > 0) · dati decisivi da verificare: {{ $unknownCritical }}@endif
-                    </p>
-                </div>
-            </div>
-            <p class="crm-info {{ $result['conditional'] ?? false ? 'warm' : '' }}">Il punteggio riguarda solo i dati confrontabili: 100/100 non significa che tutti i requisiti siano verificati. Un requisito non rispettato è diverso da un dato mancante. Controlla entrambi prima di proporre l’immobile.</p>
-            <div class="crm-match-evidence">
-                @foreach ([['satisfied', 'Cosa corrisponde'], ['missing', 'Cosa non coincide'], ['unknown', 'Cosa manca da verificare']] as [$evidenceStatus, $heading])
-                    @php
-                        $rows = $comparisons->where('status', $evidenceStatus);
-                    @endphp
-                    <section><h3>{{ $heading }}</h3>
-                        @if ($rows->isNotEmpty())
-                            <ul>@foreach ($rows as $item)
-                                <li><strong>{{ App\Gestionale\Questionnaire\AnswerPresenter::questionLabel(['id' => $item['id'] ?? '', 'text' => $item['label'] ?? 'Criterio']) }}</strong> · {{ $item['classification'] ?? 'Preferibile' }}<br>
-                                    Richiesta: {{ App\Gestionale\Questionnaire\AnswerPresenter::comparisonAnswerLabel((string) ($item['id'] ?? ''), (string) ($item['expected'] ?? 'Da definire')) }}<br>
-                                    Immobile: {{ App\Gestionale\Questionnaire\AnswerPresenter::comparisonAnswerLabel((string) ($item['id'] ?? ''), (string) ($item['actual'] ?? 'Da definire')) }}
-                                </li>
-                            @endforeach</ul>
-                        @else<p>Nessun criterio in questa categoria.</p>@endif
-                    </section>
-                @endforeach
-            </div>
-            <details class="crm-comparison" open><summary>Perché questo punteggio?</summary>
-                @if ($comparisons->isNotEmpty())
-                    <div class="crm-table-wrap"><table><thead><tr><th>Criterio</th><th>Richiesta</th><th>Immobile</th><th>Esito</th></tr></thead><tbody>
-                        @foreach ($comparisons as $item)
-                            @php
-                                $outcome = match ($item['status'] ?? 'unknown') {
-                                    'satisfied' => 'Corrisponde',
-                                    'unknown' => 'Da verificare',
-                                    default => ($item['classification'] ?? '') === 'Indispensabile' ? 'Requisito indispensabile non soddisfatto' : (($item['classification'] ?? '') === 'Da escludere' ? 'Elemento da escludere presente' : 'Non coincide'),
-                                };
-                            @endphp
-                            <tr><td>{{ App\Gestionale\Questionnaire\AnswerPresenter::questionLabel(['id' => $item['id'] ?? '', 'text' => $item['label'] ?? 'Criterio']) }}<small>{{ $item['classification'] ?? 'Preferibile' }}</small></td>
-                                <td>{{ App\Gestionale\Questionnaire\AnswerPresenter::comparisonAnswerLabel((string) ($item['id'] ?? ''), (string) ($item['expected'] ?? 'Da definire')) }}</td>
-                                <td>{{ App\Gestionale\Questionnaire\AnswerPresenter::comparisonAnswerLabel((string) ($item['id'] ?? ''), (string) ($item['actual'] ?? 'Da definire')) }}</td>
-                                <td><x-gestionale.crm-pill>{{ $outcome }}</x-gestionale.crm-pill></td></tr>
-                        @endforeach
-                    </tbody></table></div>
-                @else<p>Servono alcune preferenze per un primo confronto. Non è un punteggio zero.</p>@endif
-            </details>
-            @if ($editable && $matchStateId !== null)
-                <form class="crm-form" wire:submit="saveMatchState">
-                    <h3>Valuta abbinamento</h3>
-                    <label class="crm-field"><span>Stato</span><select wire:model.live="matchStateForm.state">@foreach (App\Models\PropertyMatch::STATUSES as $status)<option value="{{ $status }}">{{ $status }}</option>@endforeach</select></label>
-                    @if ($matchStateForm['state'] === 'Proposto al cliente')
-                        <p class="crm-info">La proposta viene registrata nell’Agenda. Da questa schermata non parte alcuna comunicazione.</p>
-                        <label class="crm-check"><input type="checkbox" wire:model.live="matchStateForm.confirmed">Ho verificato i dati e confermo la registrazione della proposta</label>
-                    @endif
-                    @if (in_array($matchStateForm['state'], ['Rifiutato', 'Non compatibile'], true))
-                        <label class="crm-field"><span>Motivo</span><select wire:model.live="matchStateForm.rejection_reason"><option value="">Seleziona un motivo</option>@foreach (App\Models\PropertyMatch::REJECTION_REASONS as $reason)<option value="{{ $reason }}">{{ $reason }}</option>@endforeach</select></label>
-                    @endif
-                    @if ($matchStateForm['state'] === 'Visita programmata')
-                        <label class="crm-field"><span>Data e ora della visita</span><input type="datetime-local" wire:model.live="matchStateForm.visit_at"></label>
-                    @endif
-                    <label class="crm-field"><span>Riscontro</span><textarea wire:model="matchStateForm.feedback" maxlength="4000"></textarea></label>
-                    <label class="crm-field"><span>{{ $matchStateForm['state'] === 'Proposto al cliente' ? 'Nota della proposta' : 'Nota interna' }}</span><textarea wire:model="matchStateForm.note" maxlength="4000"></textarea></label>
-                    <label class="crm-field"><span>Prossima azione</span><input wire:model="matchStateForm.next_action" maxlength="500"></label>
-                    @if ($matchStateError !== '')<p class="crm-form-error" role="alert">{{ $matchStateError }}</p>@endif
-                    <div class="crm-actions"><button class="crm-btn" wire:loading.attr="disabled">Salva stato</button><button type="button" class="crm-btn secondary" wire:click="closeMatchEvidence">Chiudi</button></div>
-                </form>
-            @else
-                <div class="crm-actions"><button type="button" class="crm-btn secondary" wire:click="closeMatchEvidence">Chiudi</button></div>
-            @endif
-        </x-gestionale.crm-dialog>
+        <section class="crm-panel"><x-gestionale.activity-timeline :activities="\App\Gestionale\Activities\ActivityContext::activities($this->actor(), ['property_request_id' => $request->id])" :scope="\App\Gestionale\Activities\ActivityContext::scope(['contact_id' => $request->contact_id, 'property_request_id' => $request->id])" order="recent" /></section>
     @endif
 
     @if ($manageRequestOpen)
-        <x-gestionale.crm-dialog title="Gestisci richiesta" label="Richiesta del cliente" :close="'$wire.closeManageRequest()'">
-            <form wire:submit="manage" class="crm-form">
-                <label class="crm-field"><span>Cliente</span><select wire:model="manageContactId">@foreach ($this->clients as $c)<option value="{{ $c->id }}">{{ $c->display_name }}</option>@endforeach</select></label>
-                <p class="crm-muted">Per cambiare cliente scegli una scheda già presente: il referente della richiesta diventa quello del cliente.</p>
-                <label class="crm-field"><span>Gestione della richiesta</span><select wire:model="manageStatus">@foreach (App\Models\PropertyRequest::STATUSES as $s)<option value="{{ $s }}">{{ $s }}</option>@endforeach</select></label>
-                @error('contact_id')<p class="crm-form-error">{{ $message }}</p>@enderror
-                @error('status')<p class="crm-form-error">{{ $message }}</p>@enderror
-                <div class="crm-actions"><button type="button" class="crm-btn secondary" wire:click="closeManageRequest">Annulla</button><button class="crm-btn">Salva collegamento</button></div>
+        @php
+            $manageError = $errors->first('manage') ?: ($errors->first('contact_id') ?: ($errors->first('status') ?: $errors->first('command')));
+            $suggestions = $this->manageSuggestions;
+        @endphp
+        <x-gestionale.crm-dialog title="Dati della richiesta" :close="'$wire.closeManageRequest()'">
+            <form class="crm-form" wire:submit="manage" novalidate>
+                <div class="crm-client-entry" x-data="{ open: false, active: -1, items() { return this.$refs.list ? [...this.$refs.list.children] : [] } }">
+                    <label class="crm-field" for="manage-client"><span>Nome e cognome · demo</span>
+                        <input id="manage-client" role="combobox" aria-autocomplete="list" aria-controls="manage-client-matches" autocomplete="off" required maxlength="120" placeholder="Digita nome e cognome, telefono o email"
+                            wire:model.live.debounce.250ms="manageName"
+                            x-bind:aria-expanded="(open && items().length > 0).toString()"
+                            x-bind:aria-activedescendant="open && active >= 0 ? 'manage-client-opt-' + active : null"
+                            x-on:focus="open = true" x-on:blur="open = false" x-on:input="open = true; active = -1"
+                            x-on:keydown.arrow-down.prevent="if (open && items().length) active = Math.min(active + 1, items().length - 1)"
+                            x-on:keydown.arrow-up.prevent="if (open && items().length) active = Math.max(active - 1, 0)"
+                            x-on:keydown.enter="if (open && active >= 0 && items()[active]) { $event.preventDefault(); items()[active].click() }"
+                            x-on:keydown.escape="if (open && items().length) { $event.preventDefault(); $event.stopPropagation(); open = false }">
+                    </label>
+                    @if ($suggestions->isNotEmpty())
+                        <div class="crm-client-suggestions" role="listbox" id="manage-client-matches" aria-label="Clienti già presenti" x-ref="list" x-show="open">
+                            @foreach ($suggestions as $client)
+                                <button type="button" role="option" id="manage-client-opt-{{ $loop->index }}" wire:key="manage-client-{{ $client->id }}" x-bind:aria-selected="(active === {{ $loop->index }}).toString()" x-on:mousedown.prevent wire:click="pickClient({{ $client->id }})"><strong>{{ $client->display_name }}</strong><small>{{ $client->primaryPhone?->value ?: ($client->primaryEmail?->value ?: 'Scheda già presente') }}</small></button>
+                            @endforeach
+                        </div>
+                    @endif
+                    @if ($manageContactId !== null)<small class="crm-success">Cliente già in archivio · nessun doppione</small>@endif
+                </div>
+                <div class="crm-form-grid">
+                    <label class="crm-field"><span>Cellulare / telefono</span><input type="tel" wire:model="managePhone" @readonly($manageContactId !== null) autocomplete="off" placeholder="+39 000 000 0000"></label>
+                    <label class="crm-field"><span>Email</span><input type="email" wire:model="manageEmail" @readonly($manageContactId !== null) autocomplete="off" placeholder="cliente@example.invalid"></label>
+                </div>
+                @if ($manageContactId !== null)<p class="crm-muted">I recapiti sono quelli della scheda cliente e non vengono duplicati.</p>@endif
+                <details wire:ignore.self><summary>Gestione della richiesta</summary>
+                    <label class="crm-field"><span>Stato della richiesta</span><select wire:model="manageStatus">@foreach (App\Models\PropertyRequest::STATUSES as $s)<option value="{{ $s }}">{{ $s }}</option>@endforeach</select></label>
+                </details>
+                <p class="crm-muted">Usa dati di fantasia. Nome della richiesta e stato iniziale vengono impostati automaticamente.</p>
+                @if ($manageError)<p class="crm-error" role="alert">{{ $manageError }}</p>@endif
+                <div class="crm-form-footer"><button class="crm-btn" wire:loading.attr="disabled" wire:target="manage"><span wire:loading.remove wire:target="manage">Salva collegamento</span><span wire:loading wire:target="manage">Salvataggio…</span></button></div>
             </form>
         </x-gestionale.crm-dialog>
     @endif
 
     @if ($optionalQuestionsOpen)
-        <x-gestionale.crm-dialog title="Situazione abitativa e mutuo" label="Approfondimento facoltativo" wide :close="'$wire.closeOptionalQuestions()'">
-            <div class="crm-form"><p class="crm-muted">Domande facoltative: non entrano nel punteggio.</p>
-                @foreach ($optional as $question)@include('gestionale.partials.question', ['question' => $question, 'disabled' => ! $editable || ! $operationKnown])@endforeach
-                <div class="crm-actions"><button type="button" class="crm-btn secondary" wire:click="closeOptionalQuestions">Chiudi</button></div>
-            </div>
+        <x-gestionale.crm-dialog title="Approfondimento facoltativo" wide :close="'$wire.closeOptionalQuestions()'">
+            <p class="crm-info">Situazione abitativa e mutuo: raccogli solo ciò che serve alla pratica. Queste informazioni non entrano nel punteggio.</p>
+            @include('gestionale.partials.question-group', ['title' => 'Situazione abitativa e mutuo', 'questions' => $optional, 'advance' => null])
+            <div class="crm-form-footer"><button type="button" class="crm-btn" wire:click="closeOptionalQuestions" wire:loading.attr="disabled">Torna alla richiesta</button></div>
         </x-gestionale.crm-dialog>
     @endif
 
     @if ($specificsOpen)
-        <x-gestionale.crm-dialog title="Note, tag e specifiche" label="Richiesta del cliente" wide :close="'$wire.closeSpecifics()'">
+        @php
+            $specificQuestions = $this->specificQuestions;
+            $savedSpecifics = array_filter($specificQuestions, fn ($q) => App\Gestionale\Questionnaire\Questionnaire::hasAnswer($criteria[$q['id']] ?? null));
+            $selectedSpecific = array_column($specificQuestions, null, 'id')[$specificSelected] ?? null;
+            $archived = array_values(array_filter($this->questionnaire->questions(),
+                fn ($q) => ($q['collection'] ?? '') === 'archived' && App\Gestionale\Questionnaire\Questionnaire::hasAnswer($criteria[$q['id']] ?? null)));
+            $specificError = $errors->first('command') ?: $errors->first('value');
+        @endphp
+        <x-gestionale.crm-dialog title="Note, tag e specifiche" wide :close="'$wire.closeSpecifics()'">
             <div class="crm-form">
-                @foreach (array_filter($this->questionnaire->visible($criteria), fn ($q) => in_array($q['id'], ['notes', 'tags'], true)) as $question)@include('gestionale.partials.question', ['question' => $question, 'disabled' => ! $editable || ! $operationKnown])@endforeach
-                <h3>Aggiungi o modifica una specifica</h3>
-                @foreach ($specifics as $question)@include('gestionale.partials.question', ['question' => $question, 'disabled' => ! $editable || ! $operationKnown])@endforeach
-                @if ($archived !== [])<section class="crm-panel"><h3>Informazioni raccolte in precedenza</h3>@foreach ($archived as $q)<p>{{ App\Gestionale\Questionnaire\AnswerPresenter::questionLabel($q) }}: <strong>{{ App\Gestionale\Questionnaire\AnswerPresenter::answerLabel($q['id'], $criteria[$q['id']]) }}</strong></p>@endforeach</section>@endif
-                <div class="crm-actions"><button type="button" class="crm-btn secondary" wire:click="closeSpecifics">Chiudi</button></div>
-            </div>
-        </x-gestionale.crm-dialog>
-    @endif
-
-    @if ($removeRequestOpen)
-        <x-gestionale.crm-dialog title="Rimuovi dalle liste" label="Richiesta del cliente" :close="'$wire.closeRemoveRequest()'">
-            <div class="crm-form"><p class="crm-muted">La richiesta esce dalle liste ma resta conservata. Puoi ripristinarla in qualsiasi momento.</p>
-                <label class="crm-check"><input type="checkbox" wire:model="confirmRemove">Confermo la rimozione reversibile dalla lista</label>
-                <div class="crm-actions"><button type="button" class="crm-btn secondary" wire:click="closeRemoveRequest">Annulla</button><button type="button" class="crm-btn" wire:click="lifecycle('remove')">Rimuovi</button></div>
+                <label class="crm-field"><span>Note della richiesta</span><textarea wire:model="specificNotes" maxlength="4000" placeholder="Scrivi ciò che conta per questa ricerca…"></textarea></label>
+                <x-gestionale.crm-tag-input model="specificTags" :value="$specificTags" label="Tag della richiesta" :live="false" />
+                <p class="crm-muted">I tag si confrontano con caratteristiche e descrizione della scheda immobile. Puoi aggiungere altre specifiche solo quando servono.</p>
+                @if ($savedSpecifics !== [])
+                    <div><h3>Specifiche già raccolte</h3>
+                        <div class="crm-review-grid">
+                            @foreach ($savedSpecifics as $q)
+                                <button type="button" wire:key="saved-{{ $q['id'] }}" wire:click="selectSpecific('{{ $q['id'] }}')"><span><small>{{ App\Gestionale\Questionnaire\AnswerPresenter::questionLabel($q) }}</small><strong>{{ App\Gestionale\Questionnaire\AnswerPresenter::answerLabel($q['id'], $criteria[$q['id']]) }}</strong></span><x-gestionale.lucide name="pencil" :size="15" /></button>
+                            @endforeach
+                        </div>
+                    </div>
+                @endif
+                <label class="crm-field"><span>Aggiungi o modifica una specifica</span><select wire:model.live="specificSelected"><option value="">Scegli solo ciò che serve…</option>@foreach ($specificQuestions as $q)<option value="{{ $q['id'] }}">{{ App\Gestionale\Questionnaire\AnswerPresenter::questionLabel($q) }}</option>@endforeach</select></label>
+                @if ($selectedSpecific)
+                    <section class="crm-manual-answer" wire:key="specific-{{ $selectedSpecific['id'] }}"><h3>{{ App\Gestionale\Questionnaire\AnswerPresenter::questionLabel($selectedSpecific) }}</h3>
+                        @if (! empty($selectedSpecific['explanation']))<p class="crm-muted">{{ $selectedSpecific['explanation'] }}</p>@endif
+                        <x-gestionale.answer-input :question="$selectedSpecific" :options="$this->questionnaire->options($selectedSpecific, $criteria)" model="specificValue" wm="wire:model" :value="$specificValue" />
+                        <button type="button" class="crm-link" wire:click="clearSpecific">Rimuovi questa specifica</button>
+                    </section>
+                @endif
+                @if ($archived !== [])
+                    <details wire:ignore.self><summary>Informazioni raccolte in precedenza</summary><p class="crm-muted">Conservate nello storico, escluse dal percorso rapido e dagli abbinamenti.</p>@foreach ($archived as $q)<p><strong>{{ App\Gestionale\Questionnaire\AnswerPresenter::questionLabel($q) }}</strong><br>{{ App\Gestionale\Questionnaire\AnswerPresenter::answerLabel($q['id'], $criteria[$q['id']]) }}</p>@endforeach</details>
+                @endif
+                @if ($specificError)<p class="crm-error" role="alert">{{ $specificError }}</p>@endif
+                <div class="crm-form-footer"><button type="button" class="crm-btn" wire:click="saveSpecifics" wire:loading.attr="disabled" wire:target="saveSpecifics">Salva specifiche e note</button></div>
             </div>
         </x-gestionale.crm-dialog>
     @endif

@@ -1,22 +1,19 @@
-<x-gestionale.scouting.dialog title="Cartografia REKO" close="$wire.closeCartography()" :wide="true">
+<x-gestionale.scouting.dialog title="Cartografia REKO" label="Disponibile nel Gestionale" close="$wire.closeCartography()">
     <div class="crm-form">
-        <p>Scegli il Comune nella mappa, poi avvicinati e seleziona una particella. La presenza sulla mappa non significa che tutti i subalterni siano già nell’archivio catastale.</p>
-        @forelse ($this->inventories as $inventory)
-            <section class="crm-panel">
+        <p>Scegli il Comune nella mappa Scout, poi avvicinati e seleziona una particella. La cartografia è già caricata: non devi attivare i singoli fogli.</p>
+        @if ($this->inventories === [])
+            <p>Nessuna cartografia disponibile al momento.</p>
+        @endif
+        @foreach ($this->inventories as $inventory)
+            <section class="crm-panel" wire:key="cartography-{{ $inventory['code'] }}">
                 <h3>{{ $inventory['municipality'] }} · {{ $inventory['code'] }}</h3>
-                <p><strong>{{ number_format($inventory['parcels'], 0, ',', '.') }} perimetri di particella disponibili</strong></p>
-                @if ($inventory['parcels'] === 0)
-                    <p>Per questo Comune non sono ancora disponibili confini di particella. Le schede catastali restano consultabili nell’Archivio.</p>
-                @elseif ($inventory['code'] === 'X002')
-                    <p class="crm-import-warning">Campione dimostrativo: i perimetri catastali sono geometrie sintetiche basate sugli edifici OpenStreetMap e non rappresentano confini catastali ufficiali.</p>
-                @endif
-                <p>I dati dei diversi Comuni rimangono separati. Le sagome degli edifici aiutano a orientarsi e non rappresentano i singoli subalterni.</p>
+                <p>{{ number_format($inventory['parcels'], 0, ',', '.') }} particelle inventariate</p>
+                <p>Seleziona una particella per consultare gli immobili acquisiti nel catalogo di {{ $inventory['municipality'] }}. L’acquisizione nel censimento dipende dalle abilitazioni del tuo profilo; i dati dei diversi Comuni rimangono separati.</p>
             </section>
-        @empty
-            <div class="crm-empty">Nessuna cartografia disponibile al momento.</div>
-        @endforelse
-        @if ($this->membership->role === 'admin')
-            <p><a class="crm-btn secondary" href="{{ route('admin.catalog.index') }}" wire:navigate>Apri gestione cartografia</a></p>
+        @endforeach
+        <p>Le mappe comprendono anche eventuali allegati e sviluppi. La presenza di una particella sulla mappa non significa che siano già disponibili tutti i suoi subalterni. Gli edifici 3D aiutano a orientarsi e non rappresentano i singoli subalterni.</p>
+        @if ($isAdmin)
+            <details wire:ignore.self><summary>Carica altra cartografia</summary><a class="crm-link" href="{{ route('admin.catalog.index') }}" wire:navigate>Apri gestione cartografia</a></details>
         @endif
     </div>
 </x-gestionale.scouting.dialog>

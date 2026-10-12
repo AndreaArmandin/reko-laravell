@@ -14,6 +14,11 @@ import workerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url';
 
 // Stessa base cartografica di Gestionale/Trova (lib/map-basemap.ts): OpenFreeMap ricolorata, solo presentazione.
 const BASEMAP = 'https://tiles.openfreemap.org/styles/dark';
+const OSM_FALLBACK = {
+    version: 8,
+    sources: { osm: { type: 'raster', tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'], tileSize: 256, attribution: '© OpenStreetMap contributors' } },
+    layers: [{ id: 'osm-raster', type: 'raster', source: 'osm' }],
+};
 const WATER = '#83d5f5';
 const EMPTY = { type: 'FeatureCollection', features: [] };
 const DEFAULT_CENTER = { lat: 45.481, lng: 9.188 };
@@ -89,7 +94,7 @@ document.addEventListener('alpine:init', () => {
 
     window.Alpine.data('gestionaleMap', (config) => {
         // Fuori dallo stato reattivo di Alpine: MapLibre non funziona dentro un Proxy
-        let map = null, maplibregl = null, ready = false, vertexMarkers = [], pointMarker = null, popup = null, timer = null, controller = 0;
+        let map = null, maplibregl = null, ready = false, vertexMarkers = [], pointMarker = null, popup = null, timer = null, basemapTimer = null, controller = 0, civicController = null;
         let vertexDragUntil = 0, onUpdate = null, onCommand = null, observer = null;
         let state = {
             mode: config.mode ?? 'view',
@@ -100,6 +105,7 @@ document.addEventListener('alpine:init', () => {
             zoneShape: config.zoneShape ?? EMPTY,
             boundaryShape: config.boundaryShape ?? null,
             areas: config.areas ?? EMPTY,
+            civics: EMPTY,
             selectedParcel: config.selectedParcel ?? null,
             selectedOutline: config.selectedOutline ?? null,
             outlines: config.outlines ?? null,
@@ -142,6 +148,8 @@ document.addEventListener('alpine:init', () => {
                 window.removeEventListener('gestionale-map:update', onUpdate);
                 window.removeEventListener('gestionale-map:command', onCommand);
                 clearTimeout(timer);
+                clearTimeout(basemapTimer);
+                civicController?.abort();
                 observer?.disconnect();
                 popup?.remove();
                 map?.remove();
@@ -156,6 +164,7 @@ document.addEventListener('alpine:init', () => {
                     zoom: config.zoom ?? 13,
                     attributionControl: false,
                     cooperativeGestures: false,
+                    scrollZoom: false,
                     locale: { 'NavigationControl.ZoomIn': 'Avvicina', 'NavigationControl.ZoomOut': 'Allontana', 'NavigationControl.ResetBearing': 'Orienta a nord' },
                 });
                 map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
@@ -164,7 +173,7 @@ document.addEventListener('alpine:init', () => {
                 observer = new ResizeObserver(() => map?.resize());
                 observer.observe(this.$refs.canvas);
 
-                map.on('load', () => {
+                map.on('style.load', () => {
                     styleBasemap(map);
                     this.addLayers();
                     ready = true;
@@ -172,9 +181,16 @@ document.addEventListener('alpine:init', () => {
                     this.render();
                     this.fit(false);
                     this.loadOutlines();
+                    this.loadAddressPoints();
                 });
+                map.once('load', () => clearTimeout(basemapTimer));
+                basemapTimer = setTimeout(() => {
+                    if (map && !map.isStyleLoaded()) {
+                        map.setStyle(OSM_FALLBACK);
+                    }
+                }, 20000);
                 map.on('click', (event) => this.click(event));
-                map.on('moveend', () => this.loadOutlines());
+                map.on('moveend', () => { this.loadOutlines(); this.loadAddressPoints(); });
                 map.getCanvas().classList.toggle('proto-map-drawing', state.mode === 'draw-polygon');
                 if (state.mode === 'draw-polygon') map.doubleClickZoom.disable();
             },
@@ -184,6 +200,7 @@ document.addEventListener('alpine:init', () => {
                 add('gm-zone', EMPTY);
                 add('gm-outlines', EMPTY);
                 add('gm-references', EMPTY);
+                add('gm-civics', EMPTY);
                 add('gm-parcels', EMPTY);
                 add('gm-buildings', EMPTY);
                 add('gm-boundary', EMPTY);
@@ -211,6 +228,7 @@ document.addEventListener('alpine:init', () => {
                 });
                 // Punti di riferimento («Diritti di superficie»): cerchi viola come .reko-surface-reference
                 map.addLayer({ id: 'gm-references', type: 'circle', source: 'gm-references', paint: { 'circle-radius': 9, 'circle-color': '#7c3aed', 'circle-stroke-color': '#ffffff', 'circle-stroke-width': 2 } });
+                map.addLayer({ id: 'gm-civics', type: 'circle', source: 'gm-civics', paint: { 'circle-radius': 4, 'circle-color': '#1f6f78', 'circle-stroke-color': '#ffffff', 'circle-stroke-width': 1.5 } });
                 // Confine della zona e raggio del punto
                 map.addLayer({ id: 'gm-circle-fill', type: 'fill', source: 'gm-circle', paint: { 'fill-color': FILL, 'fill-opacity': 0.06 } });
                 map.addLayer({ id: 'gm-circle-line', type: 'line', source: 'gm-circle', paint: { 'line-color': INK, 'line-width': 1.5, 'line-dasharray': [4, 3] } });
@@ -243,6 +261,7 @@ document.addEventListener('alpine:init', () => {
                     type: 'FeatureCollection',
                     features: references.filter((o) => isPoint(o.point)).map((o) => ({ type: 'Feature', properties: { outline: JSON.stringify(o), title: o.title ?? '' }, geometry: { type: 'Point', coordinates: [o.point[1], o.point[0]] } })),
                 });
+                map.getSource('gm-civics').setData(state.civics ?? EMPTY);
                 this.renderOutlines();
                 const inDrawing = state.mode === 'draw-polygon';
                 map.getSource('gm-boundary').setData(inDrawing ? boundaryFeatures(draft) : (state.boundaryShape ?? boundaryFeatures(state.polygon)));
@@ -255,9 +274,11 @@ document.addEventListener('alpine:init', () => {
             renderOutlines() {
                 if (!ready) return;
                 const key = state.selectedOutline;
+                const censusKeys = new Set((state.parcels?.features ?? []).map((feature) => feature.properties?.key).filter(Boolean));
                 map.getSource('gm-outlines').setData({
                     type: 'FeatureCollection',
-                    features: outlines.map((o) => ({
+                    // Una sagoma già presente nel censimento viene disegnata solo da gm-parcels.
+                    features: outlines.filter((o) => !censusKeys.has(o.key)).map((o) => ({
                         type: 'Feature',
                         properties: { selected: key !== null && o.key === key, outline: JSON.stringify(o) },
                         geometry: { type: 'MultiPolygon', coordinates: (o.polygon ?? []).map((poly) => poly.map((ring) => ring.map(([lat, lng]) => [lng, lat]))) },
@@ -345,6 +366,7 @@ document.addEventListener('alpine:init', () => {
                 if (state.mode === 'pick-point') {
                     state = { ...state, point: { ...(state.point ?? {}), lat, lng } };
                     this.renderPoint();
+                    map.easeTo({ center: [lng, lat], duration: reduced() ? 0 : 250 });
                     this.emit('map-point-picked', { lat, lng });
                     return;
                 }
@@ -427,6 +449,33 @@ document.addEventListener('alpine:init', () => {
                     }
                     this.render();
                 }, 200);
+            },
+
+            async loadAddressPoints() {
+                if (!map || state.mode !== 'pick-point' || map.getZoom() < 12 || !config.addressPointsUrl) {
+                    civicController?.abort();
+                    state.civics = EMPTY;
+                    if (ready) map?.getSource('gm-civics')?.setData(EMPTY);
+                    return;
+                }
+                civicController?.abort();
+                civicController = new AbortController();
+                const bounds = map.getBounds();
+                const query = new URLSearchParams({
+                    south: String(bounds.getSouth()), west: String(bounds.getWest()),
+                    north: String(bounds.getNorth()), east: String(bounds.getEast()),
+                });
+                try {
+                    const response = await fetch(`${config.addressPointsUrl}?${query}`, { signal: civicController.signal, headers: { Accept: 'application/json' } });
+                    if (!response.ok) throw new Error('');
+                    state.civics = await response.json();
+                    if (ready) map.getSource('gm-civics')?.setData(state.civics);
+                } catch (error) {
+                    if (error?.name !== 'AbortError') {
+                        state.civics = EMPTY;
+                        if (ready) map.getSource('gm-civics')?.setData(EMPTY);
+                    }
+                }
             },
 
             // ---- Posizione

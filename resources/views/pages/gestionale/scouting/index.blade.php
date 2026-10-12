@@ -2,6 +2,7 @@
 
 use App\Gestionale\Actions\Scouting\AssignParcelOperator;
 use App\Gestionale\Actions\Scouting\AcquireCatalogParcels;
+use App\Gestionale\Actions\Scouting\AcquireTerrainParcel;
 use App\Gestionale\Actions\Scouting\SaveCensusPlan;
 use App\Gestionale\Actions\Scouting\SaveZoneBoundary;
 use App\Gestionale\CommandRejected;
@@ -14,6 +15,7 @@ use App\Gestionale\Scouting\ScoutingMap;
 use App\Gestionale\Scouting\ScoutingState;
 use App\Models\AgencyMembership;
 use App\Models\ScoutingZone;
+use App\Models\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Livewire\Attributes\Computed;
@@ -66,6 +68,9 @@ new #[Layout('layouts::gestionale'), Title('Mappa e zone')] class extends Compon
     // Disegno dei confini (i vertici restano nel browser fino al salvataggio)
     public bool $drawing = false;
 
+    /** Il Comune su cui si sta disegnando: non cambia finché il disegno è aperto (i vertici valgono solo per questo Comune). */
+    public string $drawMunicipalityCode = '';
+
     public ?int $draftId = null;
 
     public string $draftName = '';
@@ -90,7 +95,11 @@ new #[Layout('layouts::gestionale'), Title('Mappa e zone')] class extends Compon
     /** Particelle selezionate per l’acquisizione dal catalogo REKO. */
     public array $catalogPicks = [];
 
+    /** Particella del pannello già aggiunta al censimento (codice|sezione|foglio|particella): il pulsante diventa «Immobili presenti nel censimento». */
+    public string $acquiredKey = '';
+
     public string $catalogToken = '';
+    public string $terrainToken = '';
 
     // Nuova Scouting Zone / Piano di censimento
     public bool $zoneFormOpen = false;
@@ -109,6 +118,7 @@ new #[Layout('layouts::gestionale'), Title('Mappa e zone')] class extends Compon
     {
         $this->guard();
         $this->catalogToken = (string) Str::uuid();
+        $this->terrainToken = (string) Str::uuid();
         $codes = array_column($this->inventories, 'code');
         $this->municipalityCode = $codes === [] || in_array('F205', $codes, true) ? 'F205' : $codes[0];
     }
@@ -244,7 +254,12 @@ new #[Layout('layouts::gestionale'), Title('Mappa e zone')] class extends Compon
             $parcel = collect($parcels)->firstWhere('id', $this->selected);
         }
 
-        $features = array_map(fn ($p) => ['type' => 'Feature', 'properties' => ['id' => $p['id'], 'label' => $p['parcel'], 'state' => $states[$p['id']] ?? 0], 'geometry' => $p['geometry']], $parcels);
+        // Call 07/10, punto 20: il numero sulla sagoma è quello degli immobili già importati nell’archivio.
+        $archived = ParcelPanel::archiveCounts($membership, $ids);
+        $features = array_map(fn ($p) => ['type' => 'Feature', 'properties' => [
+            'id' => $p['id'], 'key' => ScoutingMap::outlineKey($p['code'], $p['section'], $p['sheet'], $p['parcel'], $p['kind']),
+            'label' => ($archived[$p['id']] ?? 0) > 0 ? (string) $archived[$p['id']] : '', 'state' => $states[$p['id']] ?? 0,
+        ], 'geometry' => $p['geometry']], $parcels);
 
         return ['parcels' => $parcels, 'features' => $features, 'addresses' => $result['addresses'], 'missing' => $result['missing'], 'states' => $states, 'agents' => $agents,
             'parcel' => $parcel, 'buildings' => ScoutingMap::buildings($parcels)];
@@ -436,6 +451,11 @@ new #[Layout('layouts::gestionale'), Title('Mappa e zone')] class extends Compon
 
     public function updatedMunicipalityCode(string $code): void
     {
+        if ($this->drawing) {
+            $this->municipalityCode = $this->drawMunicipalityCode;
+
+            return;
+        }
         $this->changeMunicipality($code);
     }
 
@@ -619,6 +639,7 @@ new #[Layout('layouts::gestionale'), Title('Mappa e zone')] class extends Compon
         $this->draftToken = (string) Str::uuid();
         $this->boundaryError = '';
         $this->drawing = true;
+        $this->drawMunicipalityCode = $this->municipalityCode;
         $this->draftSeed++;
         $this->closeSelection();
     }
@@ -637,13 +658,18 @@ new #[Layout('layouts::gestionale'), Title('Mappa e zone')] class extends Compon
         $this->boundaryError = '';
         try {
             $membership = $this->actor();
+            if (! $this->drawing) {
+                throw new CommandRejected('Nessun disegno aperto: riavvia il disegno della zona.');
+            }
+            // Il Comune del disegno, mai quello eventualmente cambiato dopo l'avvio.
+            $code = $this->drawMunicipalityCode !== '' ? $this->drawMunicipalityCode : $this->municipalityCode;
             $boundary = \App\Gestionale\Scouting\ZoneBoundary::validate($vertices);
-            $issue = MapContext::coverageNotice($this->municipalityCode, $boundary, $this->inventories);
+            $issue = MapContext::coverageNotice($code, $boundary, $this->inventories);
             if ($issue !== '') {
                 throw new CommandRejected($issue);
             }
             $zone = app(SaveZoneBoundary::class)->handle($membership, [
-                'code' => $this->municipalityCode, 'name' => trim($this->draftName), 'boundary' => $boundary, 'token' => $this->draftId === null ? $this->draftToken : '',
+                'code' => $code, 'name' => trim($this->draftName), 'boundary' => $boundary, 'token' => $this->draftId === null ? $this->draftToken : '',
                 'operator_id' => $membership->role === 'scout' ? $membership->user_id : $this->draftOperator,
             ], $this->draftId, $this->draftId === null ? null : $this->draftRevision);
         } catch (CommandRejected $e) {
@@ -684,7 +710,7 @@ new #[Layout('layouts::gestionale'), Title('Mappa e zone')] class extends Compon
         $zone = $id === null ? null : $this->allZones->firstWhere('id', $id);
         $this->zoneFormId = $zone?->id;
         $this->zf = [
-            'name' => $zone?->name ?? '', 'description' => $zone?->notes ?? '', 'operator_id' => (string) ($zone?->operator_user_id ?? ''),
+            'name' => $zone?->name ?? '', 'description' => $zone?->notes ?? '', 'operator_id' => (string) ($zone?->operator_user_id ?? $this->scouts->first()?->user_id ?? ''),
             'status' => $zone?->status ?? 'Pianificata', 'start' => $zone?->starts_on?->toDateString() ?? '',
             'plan' => $zone ? CensusPlan::format((array) $zone->plan) : '',
         ];
@@ -731,6 +757,13 @@ new #[Layout('layouts::gestionale'), Title('Mappa e zone')] class extends Compon
     public function progress(): ?array
     {
         return $this->planZone ? CensusPlan::progress($this->planZone) : null;
+    }
+
+    /** Il nome dell'operatore della zona di "Stato del censimento". */
+    #[Computed]
+    public function planOperator(): string
+    {
+        return (string) User::query()->whereKey($this->planZone?->operator_user_id)->value('name');
     }
 
     // ---- Elenco immobili della particella
@@ -831,7 +864,26 @@ new #[Layout('layouts::gestionale'), Title('Mappa e zone')] class extends Compon
             'token' => (string) Str::uuid(),
         ]), 'Immobili aggiunti al censimento, senza duplicati');
         if ($result !== null) {
+            $this->acquiredKey = implode('|', [$i['code'], $i['section'], $i['sheet'], $i['parcel']]);
             $this->catalogAcquired(false);
+        }
+    }
+
+    public function acquireTerrainParcel(): void
+    {
+        $actor = $this->guard();
+        $identity = $this->selectedIdentity;
+        if ($this->drawing || $actor->role !== 'admin' || $identity === null || $identity['kind'] !== 'T') {
+            abort_unless($actor->role === 'admin', 403);
+            return;
+        }
+        $result = $this->command(fn () => app(AcquireTerrainParcel::class)->handle($actor, [
+            'code' => $identity['code'], 'section' => $identity['section'], 'sheet' => $identity['sheet'], 'parcel' => $identity['parcel'], 'token' => $this->terrainToken,
+        ]), 'Perimetro del Catasto Terreni acquisito');
+        if ($result !== null) {
+            $this->terrainToken = (string) Str::uuid();
+            unset($this->mapState);
+            $this->center++;
         }
     }
 
@@ -848,17 +900,15 @@ new #[Layout('layouts::gestionale'), Title('Mappa e zone')] class extends Compon
 
 @php
     $isAdmin = $this->membership->role === 'admin';
+    $canSister = $this->membership->allows('sister.import');
     $inventories = $this->inventories;
     $municipality = $this->municipality;
     $zones = $this->zones;
     $drawing = $this->drawing;
     $notice = $this->boundaryNotice;
-    $label = fn (string $key) => $key;
 @endphp
-<div class="crm-scouting-page" x-data x-on:keydown.escape.window="if (! document.querySelector('dialog[open]')) $wire.closeSelection()">
-    <div class="crm-page-head"><div><p class="proto-eyebrow">REKO Gestionale</p><h1>Mappa e zone</h1><p class="crm-muted">Scegli il Comune e tocca una particella per vedere gli immobili.</p></div>
-        @can('agency-permission', 'sister.import')<div class="crm-actions"><a class="crm-btn secondary" href="{{ route('gestionale.archive.index', ['importSister' => 1, 'municipalityCode' => $municipalityCode]) }}" wire:navigate><x-gestionale.lucide name="upload" :size="16" />Importa da SISTER</a></div>@endcan
-    </div>
+<div x-data x-on:keydown.escape.window="if (! document.querySelector('dialog[open]')) $wire.closeSelection()">
+    <div class="crm-page-head"><div><p class="proto-eyebrow">REKO Gestionale</p><h1>Mappa e zone</h1><p class="crm-muted">Scegli il Comune e tocca una particella per vedere gli immobili.</p></div></div>
     <nav class="crm-tabs" aria-label="Mappa e zone">
         <button type="button" wire:click="setView('Mappa')" @if ($view === 'Mappa') aria-current="page" @endif>Mappa</button>
         <button type="button" wire:click="setView('Stato')" @disabled($drawing) @if ($view === 'Stato') aria-current="page" @endif>Stato del censimento</button>

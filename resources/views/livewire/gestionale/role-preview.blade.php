@@ -59,7 +59,7 @@ new class extends Component {
             <dialog class="proto-dialog reko-prototype proto-dialog-wide" aria-labelledby="role-preview-title" x-init="$el.showModal()" x-on:cancel.prevent="$wire.close()" x-on:click="if ($event.target === $el) $wire.close()">
                 <div class="proto-dialog-heading">
                     <div><p class="proto-eyebrow">Simulazione REKO</p><h2 id="role-preview-title">Vedi come… · anteprima di Oggi</h2></div>
-                    <button type="button" class="crm-icon-button" aria-label="Chiudi" wire:click="close"><x-gestionale.lucide name="x" /></button>
+                    <button type="button" class="crm-dialog-close" aria-label="Chiudi" wire:click="close"><x-gestionale.lucide name="x" :size="16" /></button>
                 </div>
                 <p class="crm-info">Solo lettura: stai ancora usando il tuo account Responsabile. Nessun dato o permesso viene modificato.</p>
                 <label class="crm-field">Persona e ruolo

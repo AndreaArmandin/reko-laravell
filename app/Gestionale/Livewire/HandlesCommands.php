@@ -13,6 +13,9 @@ use Closure;
  */
 trait HandlesCommands
 {
+    /** Avviso di salvataggio senza messaggio proprio (mutate in context.tsx). */
+    private const DEFAULT_NOTICE = 'Modifica salvata nell’archivio';
+
     protected function actor(): AgencyMembership
     {
         return app(CurrentAgency::class)->membership() ?? abort(403, 'Nessuna agenzia attiva per questo account.');
@@ -37,9 +40,7 @@ trait HandlesCommands
             return null;
         }
 
-        if ($success !== null) {
-            $this->dispatch('crm-notice', type: 'success', text: $success);
-        }
+        $this->dispatch('crm-notice', type: 'success', text: $success ?? self::DEFAULT_NOTICE);
 
         return $result;
     }

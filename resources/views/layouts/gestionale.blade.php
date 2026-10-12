@@ -101,15 +101,22 @@
 
             <div class="crm-demo-strip">
                 <span><i></i>Uso interno dell’agenzia · nessun annuncio pubblicato automaticamente sui portali</span>
-                <span role="status"><x-gestionale.lucide name="check" :size="13" />Archivio aggiornato</span>
+                <span role="status"><x-gestionale.lucide name="check" :size="13" /><span x-text="$store.crm.busy > 0 ? 'Salvataggio…' : 'Archivio aggiornato'">Archivio aggiornato</span></span>
+            </div>
+            <div class="crm-global-error" role="alert" x-show="$store.crm.error" x-cloak>
+                <span x-text="$store.crm.error"></span>
+                <button type="button" aria-label="Chiudi errore" x-on:click="$store.crm.error = ''"><x-gestionale.lucide name="x" :size="17" /></button>
             </div>
 
             <main id="crm-main" class="crm-main" tabindex="-1">
                 {{ $slot }}
             </main>
-            <footer class="crm-footer"><x-gestionale.privacy-links /><span>REKO Gestionale · archivio riservato</span><span role="status" aria-live="polite">Dati e ricerche distinti per Comune</span></footer>
+            <footer class="crm-footer"><x-gestionale.privacy-links /><span>REKO Gestionale · archivio riservato</span><span role="status" aria-live="polite" x-text="$store.crm.notice || 'Dati e ricerche distinti per Comune'">Dati e ricerche distinti per Comune</span></footer>
         </div>
     </div>
+
+    {{-- Guida contestuale globale (ContextGuide montata in client/main.tsx) --}}
+    <x-gestionale.context-guide />
 
     <aside
         class="crm-save-feedback"
@@ -136,6 +143,30 @@
         <span x-text="message"></span>
         <button type="button" x-show="type === 'error'" aria-label="Chiudi avviso di salvataggio" x-on:click="dismiss()">×</button>
     </aside>
+    {{-- Stato di strip, footer e banner errori (busy, notice ed error di context.tsx): sopravvive a wire:navigate. --}}
+    <script data-navigate-once>
+        (() => {
+            const setup = () => {
+                Alpine.store('crm', { busy: 0, notice: '', error: '' });
+                window.addEventListener('crm-notice', (event) => {
+                    const crm = Alpine.store('crm'), detail = event.detail ?? {}, text = typeof detail.text === 'string' ? detail.text : '';
+                    crm.notice = detail.type === 'error' ? '' : text;
+                    crm.error = detail.type === 'error' ? text : '';
+                });
+            };
+            // Conta solo le richieste con un'azione della pagina (non $set, $refresh): come il busy di mutate().
+            const track = () => Livewire.interceptMessage(({ message, onFinish }) => {
+                if (! message.getActions().some((action) => ! action.name.startsWith('$'))) return;
+                const crm = Alpine.store('crm');
+                crm.busy++;
+                crm.notice = '';
+                crm.error = '';
+                onFinish(() => crm.busy--);
+            });
+            window.Alpine ? setup() : document.addEventListener('alpine:init', setup);
+            window.Livewire ? track() : document.addEventListener('livewire:init', track);
+        })();
+    </script>
     @fluxScripts
 </body>
 

@@ -23,6 +23,17 @@ final class Format
         return $date->locale('it')->isoFormat('D MMM YYYY').(! $dateOnly && $time ? ', '.$date->format('H:i') : '');
     }
 
+    /** parcel-measurements.tsx format: "1234,5 m²" (toLocaleString it-IT, al massimo un decimale; sotto i 10.000 senza separatore delle migliaia) o "Non verificata". */
+    public static function area(?float $value): string
+    {
+        if ($value === null) {
+            return 'Non verificata';
+        }
+        $text = rtrim(rtrim(number_format($value, 1, ',', '.'), '0'), ',');
+
+        return (abs($value) < 10000 ? str_replace('.', '', $text) : $text).' m²';
+    }
+
     /** presentation-normalization.ts normalizeAddress */
     public static function normalizeAddress(string $value): string
     {

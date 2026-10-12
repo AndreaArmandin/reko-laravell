@@ -254,7 +254,7 @@ it('shows the linked next contact and correction marker in cadastral activity hi
         ->assertSee('Corretto con motivazione');
 
     $archive->call('openOutcomeHistory', $unit->cadastral_unit_id)
-        ->assertSee('Storico catastale e attività')
+        ->assertSee('Storico attività')
         ->assertSee('Richiamare dopo la visita')
         ->call('correctOutcomeFromHistory', $activity->id)
         ->assertDispatched('activity-form');

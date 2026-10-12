@@ -1,5 +1,6 @@
 @props(['property'])
 @php
+    use App\Gestionale\Properties\PropertyFields;
     use App\Gestionale\Properties\TestRecords;
     use App\Gestionale\Questionnaire\AnswerPresenter;
     use App\Gestionale\Questionnaire\Questionnaire;
@@ -8,14 +9,14 @@
     $f = $property->features ?? [];
     $has = fn ($key) => Questionnaire::hasAnswer($f[$key] ?? null);
     $details = array_filter([
-        ($f['operation'] ?? null) === 'Acquisto' ? 'In vendita' : (($f['operation'] ?? null) === 'Locazione' ? 'In affitto' : 'Operazione non indicata'),
+        PropertyFields::operationLabel($f['operation'] ?? null),
         $has('occupancy') ? 'Occupazione: '.AnswerPresenter::label($f['occupancy']) : '',
         $has('rooms') ? AnswerPresenter::label($f['rooms']).($f['rooms'] === 1 ? ' locale' : ' locali') : '',
         $has('energy') ? 'Classe energetica '.AnswerPresenter::label($f['energy']) : '',
     ]);
 @endphp
 <article wire:key="property-{{ $property->id }}">
-    <a class="crm-property-card" style="display:block" href="{{ route('gestionale.properties.show', $property) }}" wire:navigate>
+    <a class="crm-property-card block" href="{{ route('gestionale.properties.show', $property) }}" wire:navigate>
         <div class="crm-property-graphic"><span>{{ $f['typology'] ?? '' }}</span><strong>{{ $property->zone }}</strong></div>
         <div class="crm-property-info">
             <div class="crm-between"><x-gestionale.crm-pill>Stato scheda: {{ $property->status }}</x-gestionale.crm-pill><small>{{ $property->code }}</small></div>
@@ -29,5 +30,5 @@
             <small>{{ implode(' · ', $details) }}</small>
         </div>
     </a>
-    <x-gestionale.record-activities :subject="$property" :compact="true" />
+    <x-gestionale.record-activities :subject="$property" :compact="true" :person-actions="true" :menu-label="'Azioni per '.$property->title" />
 </article>

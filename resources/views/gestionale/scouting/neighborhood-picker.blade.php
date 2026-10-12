@@ -1,11 +1,13 @@
-<x-gestionale.scouting.dialog title="Quartieri e frazioni REKO" close="$wire.closePublicZones()" :wide="true">
-    <div class="crm-public-zone-content crm-form">
-        <p>Scegli un’area del Comune sulla mappa oppure nell’elenco.</p>
+@php
+    $pickedZone = collect($this->neighborhoods)->firstWhere('id', (int) $pickedPublicZone);
+@endphp
+<x-gestionale.scouting.dialog title="Quartieri e frazioni REKO" :label="$municipalityCode === 'F205' ? 'Quartieri di Milano' : 'Zone indicative REKO'" close="$wire.closePublicZones()" :wide="true">
+    {{-- public-neighborhood-picker.tsx: il nome sotto la mappa segue il passaggio del mouse (evento map-area-hover), altrimenti la zona scelta. --}}
+    <div class="crm-form crm-public-zone-content" x-data="{ hover: '' }" x-on:map-area-hover="if ($event.detail.key === 'public-zone-map') hover = $event.detail.name">
+        <label>Zona del Comune<select aria-label="Quartiere o frazione REKO" wire:model.live="pickedPublicZone"><option value="">Tutto il Comune</option>@foreach ($this->neighborhoods as $zone)<option value="{{ $zone['id'] }}">{{ $zone['name'] }}</option>@endforeach</select></label>
         <div class="crm-public-zone-map"><x-gestionale.map key="public-zone-map" :config="$this->pickerPayload" :sync="$this->pickerPayload" label="Quartieri e frazioni del Comune" /></div>
-        <label class="crm-field"><span>Quartiere o frazione</span><select wire:model.live="pickedPublicZone"><option value="">Tutto il Comune</option>@foreach ($this->neighborhoods as $zone)<option value="{{ $zone['id'] }}">{{ $zone['name'] }}</option>@endforeach</select></label>
-        @php($pickedZone = collect($this->neighborhoods)->firstWhere('id', (int) $pickedPublicZone))
-        @if (($pickedZone['notice'] ?? '') !== '')<p class="crm-import-warning">{{ $pickedZone['notice'] }}</p>@endif
-        @if ($this->neighborhoods === [])<p class="crm-muted">Non ci sono ancora poligoni di quartiere per questo Comune.</p>@endif
-        <div class="crm-actions"><button type="button" class="crm-btn secondary" wire:click="clearPublicZone">Tutto il Comune</button><button type="button" class="crm-btn" wire:click="applyPublicZone">Applica zona</button></div>
+        <p role="status"><span x-show="hover" x-cloak x-text="hover"></span><span x-show="! hover">{{ $pickedZone['name'] ?? 'Tocca una zona sulla mappa oppure scegli dall’elenco.' }}</span></p>
+        <small>{{ \App\Gestionale\Scouting\MapContext::NEIGHBORHOOD_NOTICE }} Il filtro considera un punto interno alla particella, senza modificarne il perimetro. Le zone operative dell’agenzia restano separate.</small>
+        <div class="crm-actions"><button type="button" class="crm-btn" wire:click="applyPublicZone">Applica zona</button><button type="button" class="crm-btn secondary" wire:click="clearPublicZone">Tutto il Comune</button></div>
     </div>
 </x-gestionale.scouting.dialog>
