@@ -198,3 +198,18 @@ it('requires choosing the municipality before exposing archive filters and resul
         ->assertSet('firstOutcome', 'Interessato')
         ->assertSee('Seleziona il Comune per aprire i filtri e le schede dell’archivio.');
 });
+
+it('does not break when a Comune is selected that the agency has no units in yet', function () {
+    $admin = AgencyMembership::factory()->admin()->create();
+    $this->actingAs($admin->user);
+    $provinceId = DB::table('territorial_provinces')->insertGetId([
+        'code' => '001', 'abbreviation' => 'TO', 'name' => 'Torino', 'created_at' => now(), 'updated_at' => now(),
+    ]);
+    Municipality::query()->create(['cadastral_code' => 'L219', 'name' => 'Torino', 'territorial_province_id' => $provinceId]);
+
+    // The Comune exists but is not among the agency's own: the list is empty, the page must still render.
+    Livewire::test('pages::gestionale.archive.index')
+        ->set('municipalityCode', 'L219')
+        ->assertOk()
+        ->assertSee('Archivio catastale');
+});

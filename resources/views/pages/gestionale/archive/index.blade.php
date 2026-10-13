@@ -713,11 +713,11 @@ new #[Layout('layouts::gestionale'), Title('Archivio catastale')] class extends 
         }
     }
 
-    /** @return array{page:int,size:int,total:int,items:list<array<string,mixed>>,people:list<array<string,mixed>>,options:array<string,list<string>>} */
+    /** @return array{page:int,size:int,total:int,items:list<array<string,mixed>>,people:list<array<string,mixed>>,options:array<string,list<string>>,nextCursor:?array<string,mixed>} */
     #[Computed]
     public function results(): array
     {
-        $empty = ['page' => $this->page, 'size' => 20, 'total' => 0, 'items' => [], 'people' => [], 'options' => ['outcome' => ['Nessun esito']]];
+        $empty = ['page' => $this->page, 'size' => 20, 'total' => 0, 'items' => [], 'people' => [], 'options' => ['outcome' => ['Nessun esito']], 'nextCursor' => null];
         if (! $this->archiveReady || (! $this->hasFocus() && ! in_array($this->municipalityCode, array_column($this->municipalities, 'code'), true))) {
             return $empty;
         }

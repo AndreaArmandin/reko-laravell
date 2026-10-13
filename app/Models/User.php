@@ -30,7 +30,7 @@ use Laravel\Fortify\TwoFactorAuthenticatable;
  * @property Carbon|null $updated_at
  */
 #[Fillable(['name', 'email', 'password', 'google_calendar_id'])]
-#[Hidden(['password', 'two_factor_secret', 'two_factor_recovery_codes', 'remember_token'])]
+#[Hidden(['password', 'two_factor_secret', 'two_factor_recovery_codes', 'remember_token', 'inbound_token_hash', 'inbound_code'])]
 class User extends Authenticatable implements PasskeyUser
 {
     /** @use HasFactory<UserFactory> */
@@ -54,6 +54,14 @@ class User extends Authenticatable implements PasskeyUser
     protected $attributes = [
         'is_admin' => false,
     ];
+
+    /**
+     * @return HasMany<InboundEmail, $this>
+     */
+    public function inboundEmails(): HasMany
+    {
+        return $this->hasMany(InboundEmail::class);
+    }
 
     /**
      * @return HasMany<AgencyMembership, $this>

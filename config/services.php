@@ -18,6 +18,13 @@ return [
         'key' => env('POSTMARK_API_KEY'),
     ],
 
+    // Inbound mail webhook: Postmark signs in with Basic credentials; the address is shown to users for forwarding.
+    'postmark_inbound' => [
+        'username' => env('POSTMARK_INBOUND_USERNAME'),
+        'password' => env('POSTMARK_INBOUND_PASSWORD'),
+        'address' => env('POSTMARK_INBOUND_ADDRESS'),
+    ],
+
     'resend' => [
         'key' => env('RESEND_API_KEY'),
     ],

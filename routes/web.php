@@ -11,6 +11,9 @@ Route::middleware(['auth'])->group(function () {
 
     // Trova: stesso percorso guidato e stessa grafica dell'app originale
     Route::livewire('trova', 'pages::trova.index')->name('trova');
+
+    // Posta personale: le email dei portali arrivano all'utente che ha collegato la sua casella
+    Route::livewire('posta', 'pages::inbox.index')->name('inbox');
 });
 
 // Pannello Admin

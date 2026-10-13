@@ -25,10 +25,7 @@
                     {{ __('Trova') }}
                 </flux:sidebar.item>
 
-                {{-- Agenzie --}}
                 @if (auth()->user()->is_admin)
-                    <flux:sidebar.item icon="building-office" :href="route('admin.agencies.index')"
-                        :current="request()->routeIs('admin.agencies.*')" wire:navigate>Agenzie</flux:sidebar.item>
                     <flux:sidebar.item icon="archive-box" :href="route('admin.catalog.index')"
                         :current="request()->routeIs('admin.catalog.*')" wire:navigate>Catalogo</flux:sidebar.item>
                     <flux:sidebar.item icon="map" :href="route('admin.zones.index')"
